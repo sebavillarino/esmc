@@ -1,0 +1,18 @@
+Package: esmc
+Title: Equivalent Soil Mass Comparisons
+Version: 0.0.0.9000
+Authors@R:
+    person(given = "Sebastian",
+           family = "Villarino",
+           role = c("aut", "cre"),
+           email = "sebavillarino@gmail.com")
+Description: Description: Provides methods to perform equivalent soil mass comparisons for soil carbon and other elements.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    stats
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
