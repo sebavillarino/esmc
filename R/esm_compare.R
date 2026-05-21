@@ -192,9 +192,9 @@ esm_compare <- function(
   # ---- Drop rows with missing essential values --------------------------------
   df <- data[
     is.finite(data$upper)          &
-      is.finite(data$lower)          &
-      is.finite(data$bd)             &
-      is.finite(data[[soil_prop]]),
+    is.finite(data$lower)          &
+    is.finite(data$bd)             &
+    is.finite(data[[soil_prop]]),
     , drop = FALSE
   ]
   if (nrow(df) == 0)
@@ -202,8 +202,8 @@ esm_compare <- function(
 
   # ---- Interval computations (full, for internal use) ------------------------
   soc_unit_eff <- if (isTRUE(som_from_soc))
-    (if (identical(soc_col, soil_prop)) soil_prop_unit else soc_unit)
-  else soc_unit
+                    (if (identical(soc_col, soil_prop)) soil_prop_unit else soc_unit)
+                  else soc_unit
 
   interval_full <- .esm_compute_intervals(
     df             = df,
@@ -290,10 +290,10 @@ esm_compare <- function(
     msg_parts <- character(0)
     if (n_extrap_layers > 0)
       msg_parts <- c(msg_parts,
-                     paste0(n_extrap_layers, " layer estimate(s) in $layer"))
+        paste0(n_extrap_layers, " layer estimate(s) in $layer"))
     if (n_extrap_cum > 0)
       msg_parts <- c(msg_parts,
-                     paste0(n_extrap_cum, " profile(s) in $cumulative"))
+        paste0(n_extrap_cum, " profile(s) in $cumulative"))
     warning(
       "ESM extrapolation beyond observed mineral mass range detected in: ",
       paste(msg_parts, collapse = " and "), ".\n",
@@ -401,7 +401,7 @@ esm_compare <- function(
   out <- lapply(groups, function(g) {
     ok <- is.finite(g$cum_mineral_mass_kg_m2) & is.finite(g$cum_stock_kg_m2)
     g2 <- g[ok, c(profile_by, "cum_mineral_mass_kg_m2", "cum_stock_kg_m2"),
-            drop = FALSE]
+             drop = FALSE]
     g2 <- g2[order(g2$cum_mineral_mass_kg_m2), , drop = FALSE]
 
     if (nrow(g2) > 0 && g2$cum_mineral_mass_kg_m2[1] > 0) {
@@ -445,17 +445,17 @@ esm_compare <- function(
       g$som_source <- "measured"
       som_vals     <- g[[som_col]]
       g$som_frac   <- switch(som_unit,
-                             pct  = som_vals / 100,
-                             g_kg = som_vals / 1000,
-                             frac = som_vals
+        pct  = som_vals / 100,
+        g_kg = som_vals / 1000,
+        frac = som_vals
       )
     } else if (isTRUE(som_from_soc)) {
       g$som_source <- paste0("estimated_from_", soc_col)
       g$som_factor <- som_factor
       soc_vals     <- g[[soc_col]]
       soc_frac     <- switch(soc_unit,
-                             pct  = soc_vals / 100,
-                             g_kg = soc_vals / 1000
+        pct  = soc_vals / 100,
+        g_kg = soc_vals / 1000
       )
       g$som_frac <- soc_frac * som_factor
     }
@@ -473,7 +473,7 @@ esm_compare <- function(
 
     # Soil property as fraction -> interval stock (kg/m2)
     g$soil_prop_frac  <- if (soil_prop_unit == "pct") g[[soil_prop]] / 100
-    else                          g[[soil_prop]] / 1000
+                         else                          g[[soil_prop]] / 1000
     g$stock_kg_m2     <- g$soil_prop_frac * g$mineral_mass_kg_m2
     g$cum_stock_kg_m2 <- cumsum(
       replace(g$stock_kg_m2, is.na(g$stock_kg_m2), 0))
@@ -735,8 +735,9 @@ esm_compare <- function(
     key    <- interaction(interval_tbl[gcols], drop = TRUE)
     groups <- split(interval_tbl, key)
     do.call(rbind, lapply(groups, function(g) {
-      base <- unique(g[, gcols, drop = FALSE])[1, , drop = FALSE]
-      tt   <- do.call(rbind, lapply(bnds, function(b) {
+      base     <- unique(g[, gcols, drop = FALSE])[1, , drop = FALSE]
+      bnds_grp <- sort(unique(g$lower))
+      tt   <- do.call(rbind, lapply(bnds_grp, function(b) {
         sub <- g[g$lower == b, , drop = FALSE]
         data.frame(lower = b, target_mass_kg_m2 = fun_bnd(sub),
                    stringsAsFactors = FALSE)
