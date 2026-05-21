@@ -698,12 +698,20 @@ esm_compare <- function(
   bnds <- sort(unique(interval_tbl$lower))
 
   if (reference_mode == "custom") {
+    # Case 1: single scalar -> same target mass for all boundaries
+    if (is.numeric(custom_mass) && length(custom_mass) == 1 && is.null(names(custom_mass))) {
+      out <- data.frame(lower = bnds, target_mass_kg_m2 = custom_mass,
+                        stringsAsFactors = FALSE)
+      return(out[order(out$lower), , drop = FALSE])
+    }
+    # Case 2: named vector -> names are lower boundaries, values are target masses
     if (is.numeric(custom_mass) && !is.null(names(custom_mass))) {
       out <- data.frame(lower = as.numeric(names(custom_mass)),
                         target_mass_kg_m2 = as.numeric(custom_mass),
                         stringsAsFactors = FALSE)
       return(out[order(out$lower), , drop = FALSE])
     }
+    # Case 3: data.frame with columns lower + target_mass_kg_m2
     if (is.data.frame(custom_mass)) {
       needed <- c("lower", "target_mass_kg_m2")
       miss   <- setdiff(needed, names(custom_mass))
@@ -722,7 +730,12 @@ esm_compare <- function(
       return(out[do.call(order, out[, c(reference_by, "lower"),
                                     drop = FALSE]), , drop = FALSE])
     }
-    stop("custom_mass must be a named numeric vector or a data.frame.")
+    stop(
+      "custom_mass must be one of:\n",
+      "  - a single numeric value (same target mass for all layers)\n",
+      "  - a named numeric vector (names = lower boundaries, values = target masses)\n",
+      "  - a data.frame with columns 'lower' and 'target_mass_kg_m2'"
+    )
   }
 
   build_global <- function(fun_bnd) {
