@@ -82,10 +82,16 @@ esm_plot_spline <- function(
   interp <- match.arg(interp)
 
   # ---- Validate input -------------------------------------------------------
-  if (!is.list(esm_out) || !all(c("profile_mass", "diagnostics") %in% names(esm_out))) {
+  if (!is.list(esm_out) || !"profile_mass" %in% names(esm_out)) {
     stop(
       "esm_out must be the list returned by esm_compare(), ",
-      "containing $profile_mass and $diagnostics."
+      "containing at least $profile_mass."
+    )
+  }
+  if (!"diagnostics" %in% names(esm_out)) {
+    stop(
+      "esm_out does not contain $diagnostics, which is required for esm_plot_spline().\n",
+      "Re-run esm_compare() with output = \"both\" or output = \"cumulative\" to include diagnostics."
     )
   }
   if (!requireNamespace("ggplot2", quietly = TRUE)) {

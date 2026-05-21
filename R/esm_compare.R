@@ -39,9 +39,11 @@
 #'   (e.g. \code{"soc"} for soil organic carbon concentration).
 #' @param profile_by Character vector. Columns that uniquely identify a soil
 #'   profile/core (e.g. \code{c("site", "year", "trt", "rep")}).
-#' @param output Character. What to return: \code{"layers"} (ESM stock per
-#'   depth layer, default), \code{"cumulative"} (cumulative ESM stock at the
-#'   reference mass), or \code{"both"}.
+#' @param output Character. What to return: \code{"both"} (layers and
+#'   cumulative, default), \code{"layers"} (ESM stock per depth layer only),
+#'   or \code{"cumulative"} (cumulative ESM stock at the reference mass only).
+#'   Note: \code{esm_plot_spline()} requires \code{output = "both"} or
+#'   \code{output = "cumulative"}.
 #' @param reference_mode Character. How to define the reference mineral soil
 #'   mass: \code{"min"} uses the minimum observed mass across profiles (avoids
 #'   extrapolation), \code{"ref_trt"} uses the mean mass of a reference
@@ -136,7 +138,7 @@ esm_compare <- function(
     data,
     soil_prop,
     profile_by,
-    output         = c("layers", "cumulative", "both"),
+    output         = c("both", "layers", "cumulative"),
     reference_mode = c("min", "ref_trt", "custom"),
     reference_by   = NULL,
     ref_trt        = NULL,
