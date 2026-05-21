@@ -2,69 +2,163 @@
 % Please edit documentation in R/esm_compare.R
 \name{esm_compare}
 \alias{esm_compare}
-\title{ESM comparison (Equivalent Soil Mass Comparison)}
+\title{Equivalent Soil Mass Comparison}
 \usage{
 esm_compare(
   data,
-  rvar,
-  core_by,
-  reference_mode = c("ref_trt", "min", "custom"),
+  soil_prop,
+  profile_by,
+  output = c("layers", "cumulative", "both"),
+  reference_mode = c("min", "ref_trt", "custom"),
   reference_by = NULL,
   ref_trt = NULL,
-  custom_smm = NULL,
-  interp = c("step", "linear", "spline"),
-  rvar_unit = c("pct", "g_kg"),
+  custom_mass = NULL,
+  interp = c("spline", "linear", "step"),
+  soil_prop_unit = c("pct", "g_kg"),
   som_col = NULL,
   som_unit = c("pct", "g_kg", "frac"),
   som_from_soc = FALSE,
   soc_col = NULL,
   soc_unit = c("pct", "g_kg"),
   som_factor = 2,
-  extrapolation = c("none", "to_depth"),
-  min_core_length_cm = 0,
-  out_unit = c("kg_m2", "Mg_ha")
+  output_unit = c("kg_m2", "Mg_ha")
 )
 }
 \arguments{
-\item{data}{data.frame with required columns: upper, lower, bd, trt, plus rvar and core_by columns.}
+\item{data}{data.frame. Must contain columns: \code{upper}, \code{lower}
+(depth interval boundaries in cm), \code{bd} (bulk density in g/cm3),
+\code{trt} (treatment), the column named by \code{soil_prop}, and all
+columns listed in \code{profile_by} and \code{reference_by}.}
 
-\item{rvar}{string. Concentration column name (e.g., "soc").}
+\item{soil_prop}{Character. Name of the soil property column to analyze
+(e.g. \code{"soc"} for soil organic carbon concentration).}
 
-\item{core_by}{character vector defining a core/profile (e.g., c("Site","yr","trt","rep")).}
+\item{profile_by}{Character vector. Columns that uniquely identify a soil
+profile/core (e.g. \code{c("site", "year", "trt", "rep")}).}
 
-\item{reference_mode}{"ref_trt" | "min" | "custom"}
+\item{output}{Character. What to return: \code{"layers"} (ESM stock per
+depth layer, default), \code{"cumulative"} (cumulative ESM stock at the
+reference mass), or \code{"both"}.}
 
-\item{reference_by}{character vector defining strata for reference mass, or NULL for global.}
+\item{reference_mode}{Character. How to define the reference mineral soil
+mass: \code{"min"} uses the minimum observed mass across profiles (avoids
+extrapolation), \code{"ref_trt"} uses the mean mass of a reference
+treatment, \code{"custom"} uses a user-supplied value.}
 
-\item{ref_trt}{value in \code{trt} used as reference treatment (required if reference_mode="ref_trt").}
+\item{reference_by}{Character vector or NULL. Columns defining strata
+within which the reference mass is computed independently (e.g.
+\code{c("site", "year")}). If NULL, a single global reference mass is
+used across all profiles.}
 
-\item{custom_smm}{numeric. Reference mineral soil mass (kg/m2) if reference_mode="custom".}
+\item{ref_trt}{Value in column \code{trt} to use as the reference treatment.
+Required when \code{reference_mode = "ref_trt"}.}
 
-\item{interp}{"step" | "linear" | "spline"}
+\item{custom_mass}{Numeric. Reference mineral soil mass in kg/m2. Required
+when \code{reference_mode = "custom"}.}
 
-\item{rvar_unit}{"pct" | "g_kg"}
+\item{interp}{Character. Interpolation method for the C(M) curve:
+\code{"spline"} (cubic spline, recommended when >= 3 depth intervals are
+available), \code{"linear"} (recommended for 2 intervals), or
+\code{"step"} (constant within interval).}
 
-\item{som_col}{optional measured SOM column}
+\item{soil_prop_unit}{Character. Unit of \code{soil_prop}: \code{"pct"}
+(percent, 0-100) or \code{"g_kg"} (g per kg).}
 
-\item{som_unit}{"pct" | "g_kg" | "frac"}
+\item{som_col}{Character or NULL. Name of a column containing measured
+soil organic matter (SOM) content, used to compute mineral soil mass.
+If NULL (default), mineral mass is approximated as total soil mass
+(i.e. SOM correction is skipped unless \code{som_from_soc = TRUE}).}
 
-\item{som_from_soc}{if TRUE, estimate SOM from SOC using som_factor}
+\item{som_unit}{Character. Unit of \code{som_col}: \code{"pct"},
+\code{"g_kg"}, or \code{"frac"} (0-1).}
 
-\item{soc_col}{SOC column for SOM estimation (defaults to rvar)}
+\item{som_from_soc}{Logical. If TRUE, estimate SOM from SOC using
+\code{SOM = SOC * som_factor}.}
 
-\item{soc_unit}{"pct" | "g_kg"}
+\item{soc_col}{Character or NULL. SOC column used to estimate SOM when
+\code{som_from_soc = TRUE} and SOC is in a different column than
+\code{soil_prop}. Defaults to \code{soil_prop}.}
 
-\item{som_factor}{numeric > 0}
+\item{soc_unit}{Character. Unit of \code{soc_col} when it differs from
+\code{soil_prop}: \code{"pct"} or \code{"g_kg"}.}
 
-\item{extrapolation}{"none" | "to_depth" (reserved; v1 behaves as none)}
+\item{som_factor}{Numeric > 0. Conversion factor from SOC to SOM
+(default 2, i.e. SOM = 2 * SOC).}
 
-\item{min_core_length_cm}{numeric}
-
-\item{out_unit}{"kg_m2" or "Mg_ha" (adds *_Mg_ha columns)}
+\item{output_unit}{Character. Unit for stock outputs: \code{"kg_m2"}
+(default) or \code{"Mg_ha"} (adds convenience columns with suffix
+\code{_Mg_ha}; 1 kg/m2 = 10 Mg/ha).}
 }
 \value{
-list with interval, profile_mass, cumulative, diagnostics, meta
+A list with the following elements (some depend on \code{output}):
+\describe{
+\item{\code{interval}}{Per-interval computations: soil mass, mineral mass,
+cumulative mineral mass, and stock for each depth interval and profile.}
+\item{\code{profile_mass}}{C(M) curve nodes per profile: cumulative
+mineral mass and cumulative stock, including the (0, 0) anchor.
+Useful for diagnostic plotting with \code{esm_plot_spline}.}
+\item{\code{layer}}{(\code{output = "layers"} or \code{"both"})
+ESM-adjusted stock per depth layer and profile, computed as
+C(M_lower) - C(M_upper). Includes column \code{extrapolated}.}
+\item{\code{targets}}{(\code{output = "layers"} or \code{"both"})
+Reference mineral mass at each depth boundary.}
+\item{\code{cumulative}}{(\code{output = "cumulative"} or \code{"both"})
+Cumulative ESM stock per profile at the reference mass. Includes
+column \code{extrapolated}.}
+\item{\code{diagnostics}}{(\code{output = "cumulative"} or \code{"both"})
+Per-profile diagnostics: target mass, maximum observed mass, whether
+extrapolation was required, and any notes.}
+\item{\code{meta}}{List of settings used in the call.}
+}
 }
 \description{
-Depth is sampling; mineral soil mass is comparison.
+Standardizes soil organic carbon (SOC) stocks — or any other soil property
+that varies with depth — to a common mineral soil mass reference, using
+the Equivalent Soil Mass (ESM) framework.
+}
+\details{
+Soil samples collected at fixed depths contain different amounts of mineral
+soil mass when bulk density (BD) differs among treatments or over time.
+Comparing SOC stocks across unequal soil masses can produce artifacts
+(false positives, biased estimates). \code{esm_compare} corrects for this
+by evaluating a continuous C(M) curve — cumulative SOC stock as a function
+of cumulative mineral soil mass — for each profile, and interpolating to a
+common reference mass.
+
+When the reference mass exceeds the maximum observed mass of a profile,
+the function extrapolates beyond the observed data range. Extrapolated
+values are flagged with \code{extrapolated = TRUE} and may be biased;
+use them with caution.
+}
+\examples{
+\dontrun{
+# Layer-wise ESM stocks (most common use case)
+result <- esm_compare(
+  data           = my_data,
+  soil_prop      = "soc",
+  profile_by     = c("site", "year", "trt", "rep"),
+  output         = "layers",
+  reference_mode = "min",
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+result$layer
+
+# Cumulative ESM stock at reference treatment mass
+result2 <- esm_compare(
+  data           = my_data,
+  soil_prop      = "soc",
+  profile_by     = c("site", "year", "trt", "rep"),
+  output         = "cumulative",
+  reference_mode = "ref_trt",
+  ref_trt        = "control",
+  reference_by   = c("site", "year"),
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+result2$cumulative
+}
+
 }
