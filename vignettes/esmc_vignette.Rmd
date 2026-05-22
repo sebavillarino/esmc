@@ -1,0 +1,524 @@
+---
+title: "Getting started with esmc"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with esmc}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+library(esmc)
+```
+
+## Introduction
+
+When comparing soil organic carbon (SOC) stocks between treatments or over 
+time, the standard approach is to sample soil at fixed depths (e.g., 0–10, 
+10–30, 30–50 cm) and compare stocks within those intervals. However, the mass 
+of soil contained within a fixed-depth interval depends on bulk density (BD). 
+When BD differs between treatments — due to compaction, tillage, organic matter 
+accumulation, or other processes — samples collected at the same depth contain 
+different amounts of soil mass. Comparing SOC stocks across unequal soil masses 
+can produce statistical artifacts: apparent differences where none exist (Type I 
+error inflation), or biased estimates of true differences.
+
+The **Equivalent Soil Mass (ESM) framework** corrects for this by standardizing 
+SOC stocks to a common mineral soil mass reference rather than a common depth. 
+For each soil profile, a continuous curve of cumulative SOC stock as a function 
+of cumulative mineral soil mass — C(M) — is fitted using interpolation, and 
+stocks are evaluated at a common reference mass across all profiles.
+
+`esmc` provides a unified implementation of the ESM framework, including 
+multiple interpolation methods, flexible reference mass options, diagnostic 
+tools, and an interactive simulator. The package is based on the recommendations 
+of Villarino et al. (2026).
+
+---
+
+## Example dataset
+
+Throughout this vignette we use a simulated dataset representing a paired 
+experiment with:
+
+- 2 sites (`Site`: `"A"`, `"B"`)
+- 2 years (`yr`: `2010`, `2020`)
+- 2 treatments (`trt`: `"ctrl"` control, `"trt"` treatment with increased BD)
+- 3 replicates per treatment (`rep`: 1, 2, 3)
+- 5 depth intervals: 0–10, 10–30, 30–50, 50–70, 70–100 cm
+
+The treatment simulates a 15% increase in bulk density near the surface 
+(logistic decay with depth), which is a realistic scenario in compaction or 
+tillage studies.
+
+```{r simulate-data}
+set.seed(42)
+
+# Helper functions (internal to esmc)
+bd_wiese <- function(z_cm) {
+  z_m <- (z_cm + 0.5) / 100
+  0.1140 * log(z_m) + 1.23
+}
+
+make_profile <- function(site, yr, trt, rep, bd_inc_pct = 0, seed = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  layers <- list(c(0,10), c(10,30), c(30,50), c(50,70), c(70,100))
+  
+  # Core-level BD multiplier (between-core variability)
+  core_mult <- exp(rnorm(1, mean = -0.5 * 0.07^2, sd = 0.07))
+  
+  do.call(rbind, lapply(layers, function(z) {
+    z_mid   <- mean(z)
+    bd_base <- bd_wiese(z_mid) * core_mult
+    
+    # BD increase near surface (logistic decay)
+    if (trt == "trt" && bd_inc_pct > 0) {
+      f  <- plogis((50 - z_mid) / 6)
+      bd_base <- bd_base * (1 + (bd_inc_pct / 100) * f)
+    }
+    
+    bd_obs  <- pmax(bd_base + rnorm(1, 0, 0.03), 0.6)
+    soc_true <- 2.5 * ((z_mid + 3) / 3)^(log(0.6/2.5) / log(103/3))
+    soc_obs  <- soc_true * exp(rnorm(1, -0.5 * 0.05^2, 0.05))
+    
+    data.frame(
+      Site  = site,
+      yr    = yr,
+      trt   = trt,
+      rep   = rep,
+      upper = z[1],
+      lower = z[2],
+      bd    = round(bd_obs, 3),
+      soc   = round(soc_obs, 3)
+    )
+  }))
+}
+
+# Generate full dataset
+sites <- c("A", "B")
+years <- c(2010, 2020)
+trts  <- c("ctrl", "trt")
+reps  <- 1:3
+
+df <- do.call(rbind, lapply(sites, function(s)
+  lapply(years, function(y)
+    lapply(trts, function(t)
+      lapply(reps, function(r) {
+        seed_val <- as.integer(chartr("AB", "12", s)) * 1000 +
+                    y + as.integer(t == "trt") * 100 + r
+        make_profile(s, y, t, r,
+                     bd_inc_pct = if (t == "trt") 15 else 0,
+                     seed = seed_val)
+      })
+    )
+  ) |> unlist(recursive = FALSE)
+) |> unlist(recursive = FALSE))
+df <- do.call(rbind, df)
+rownames(df) <- NULL
+```
+
+The dataset has `r nrow(df)` rows (`r nrow(df)/5` profiles × 5 depth 
+intervals each):
+
+```{r show-data}
+head(df, 10)
+```
+
+### Required columns
+
+`esm_compare()` expects a data frame with at minimum these columns:
+
+| Column | Description | Units |
+|--------|-------------|-------|
+| `upper` | Upper boundary of depth interval | cm |
+| `lower` | Lower boundary of depth interval | cm |
+| `bd` | Bulk density | g cm⁻³ |
+| `trt` | Treatment identifier | — |
+| `soc` | Soil property to analyze | see `soil_prop_unit` |
+| + grouping columns | e.g. `Site`, `yr`, `rep` | — |
+
+---
+
+## Basic usage
+
+The main function is `esm_compare()`. At minimum it requires the data frame, 
+the name of the soil property column (`soil_prop`), and the columns that 
+uniquely identify each profile (`profile_by`):
+
+```{r basic-usage}
+result <- esm_compare(
+  data           = df,
+  soil_prop      = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min",
+  reference_by   = c("Site", "yr"),
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+```
+
+The function returns a list. A summary of its elements:
+
+```{r names}
+names(result)
+```
+
+---
+
+## Understanding the output
+
+### `$layer` — ESM stock per depth layer
+
+The most commonly used output. Each row is one depth layer for one profile, 
+with the SOC stock adjusted to the reference mineral soil mass.
+
+```{r layer}
+head(result$layer, 10)
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr`, `trt`, `rep` | Profile identifiers (from `profile_by`) |
+| `upper`, `lower` | Depth interval boundaries (cm) |
+| `target_mass_upper_kg_m2` | Reference mineral mass at the upper boundary (kg m⁻²) |
+| `target_mass_lower_kg_m2` | Reference mineral mass at the lower boundary (kg m⁻²) |
+| `cum_upper_kg_m2` | Cumulative SOC stock at the upper boundary (kg C m⁻²) |
+| `cum_lower_kg_m2` | Cumulative SOC stock at the lower boundary (kg C m⁻²) |
+| `layer_stock_kg_m2` | ESM-adjusted SOC stock for this layer = `cum_lower - cum_upper` (kg C m⁻²) |
+| `extrapolated` | `TRUE` if the target mass exceeded the observed mass range for this profile |
+
+### `$targets` — Reference mass at each depth boundary
+
+The reference mineral soil mass used at each depth boundary. This is the 
+common mass to which all profiles are standardized.
+
+```{r targets}
+result$targets
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr` | Stratum identifiers (from `reference_by`) |
+| `lower` | Depth boundary (cm) |
+| `target_mass_kg_m2` | Reference mineral soil mass at this boundary (kg m⁻²) |
+
+With `reference_mode = "min"`, the target at each boundary is the minimum 
+cumulative mineral mass observed across all profiles within the stratum — 
+this guarantees interpolation (no extrapolation needed) for all profiles.
+
+### `$cumulative` — Cumulative ESM stock at the reference mass
+
+The total SOC stock from the surface down to the reference mass, for each 
+profile.
+
+```{r cumulative}
+head(result$cumulative)
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr`, `trt`, `rep` | Profile identifiers |
+| `target_mass_kg_m2` | Reference mineral soil mass (kg m⁻²) |
+| `cum_stock_kg_m2` | Cumulative SOC stock at the reference mass (kg C m⁻²) |
+| `extrapolated` | `TRUE` if extrapolation was required |
+
+### `$diagnostics` — Per-profile interpolation diagnostics
+
+Useful for checking whether any profiles required extrapolation and why.
+
+```{r diagnostics}
+head(result$diagnostics)
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr`, `trt`, `rep` | Profile identifiers |
+| `interp` | Interpolation method used |
+| `target_mass_kg_m2` | Reference mineral soil mass (kg m⁻²) |
+| `max_cum_mass_kg_m2` | Maximum cumulative mineral mass observed for this profile (kg m⁻²) |
+| `extrapolated` | `TRUE` if `target_mass > max_cum_mass` |
+| `note` | Warning note (e.g. `INSUFFICIENT_POINTS_SPLINE`) or `NA` |
+
+### `$profile_mass` — C(M) curve nodes per profile
+
+The raw data points used to fit the C(M) interpolation curve for each profile: 
+cumulative mineral soil mass vs cumulative SOC stock, including the (0, 0) 
+anchor point. Primarily used internally and for diagnostic plotting.
+
+```{r profile-mass}
+head(result$profile_mass, 8)
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr`, `trt`, `rep` | Profile identifiers |
+| `cum_mineral_mass_kg_m2` | Cumulative mineral soil mass (kg m⁻²) |
+| `cum_stock_kg_m2` | Cumulative SOC stock (kg C m⁻²) |
+
+### `$interval` — Per-interval computations
+
+Intermediate computations for each depth interval: soil mass, mineral mass, 
+and SOC stock before ESM adjustment.
+
+```{r interval}
+head(result$interval)
+```
+
+**Columns:**
+
+| Column | Description |
+|--------|-------------|
+| `Site`, `yr`, `trt`, `rep` | Profile identifiers |
+| `upper`, `lower` | Depth interval boundaries (cm) |
+| `bd` | Bulk density (g cm⁻³) |
+| `soil_mass_kg_m2` | Total soil mass in interval (kg m⁻²) |
+| `mineral_mass_kg_m2` | Mineral soil mass in interval (kg m⁻²) |
+| `cum_mineral_mass_kg_m2` | Cumulative mineral soil mass at bottom of interval (kg m⁻²) |
+| `stock_kg_m2` | SOC stock in interval (kg C m⁻²) |
+| `cum_stock_kg_m2` | Cumulative SOC stock at bottom of interval (kg C m⁻²) |
+
+### `$meta` — Call metadata
+
+A list recording all settings used in the call, useful for reproducibility.
+
+```{r meta}
+str(result$meta)
+```
+
+---
+
+## Diagnostic plot
+
+`esm_plot_spline()` visualizes the C(M) curve for each profile: observed 
+nodes as points and the fitted interpolation curve as a line. A vertical 
+dashed line marks the reference mass.
+
+- **Blue line** — target is within the observed data range (interpolation)
+- **Red line + shading** — target exceeds the observed data range (extrapolation)
+- **Dashed red curve** — the extrapolated portion of the C(M) curve
+
+```{r plot-spline, fig.width = 9, fig.height = 7}
+esm_plot_spline(result, profile_by = c("Site", "yr", "trt", "rep"))
+```
+
+This plot is particularly useful for understanding why ESM estimates can be 
+unreliable when the reference mass exceeds the maximum observed mass of a 
+profile — the spline must extrapolate beyond the data, which can introduce bias.
+
+---
+
+## Reference modes
+
+The `reference_mode` argument controls how the reference mineral soil mass 
+is defined. This is one of the most important decisions in ESM analysis.
+
+### `"min"` — minimum observed mass (recommended)
+
+The reference mass at each depth boundary is set to the **minimum** cumulative 
+mineral mass observed across all profiles within each stratum (`reference_by`). 
+This guarantees that all profiles can be evaluated by interpolation — no 
+extrapolation is ever needed.
+
+```{r ref-min}
+res_min <- esm_compare(
+  data           = df,
+  soil_prop      = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min",
+  reference_by   = c("Site", "yr"),
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+# No extrapolation
+sum(res_min$layer$extrapolated)
+```
+
+### `"ref_trt"` — reference treatment mass
+
+The reference mass is set to the **mean** cumulative mineral mass of a 
+designated reference treatment. Profiles from other treatments may require 
+extrapolation if their mass is lower than the reference treatment's mass.
+
+```{r ref-trt}
+res_reftrt <- esm_compare(
+  data           = df,
+  soil_prop      = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  reference_mode = "ref_trt",
+  ref_trt        = "ctrl",
+  reference_by   = c("Site", "yr"),
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+# Some extrapolation may occur in treatment profiles
+sum(res_reftrt$layer$extrapolated)
+```
+
+### `"custom"` — user-supplied mass
+
+The reference mass is set to a fixed value supplied by the user. Useful when 
+comparing results across studies or when a specific mass is theoretically 
+motivated.
+
+```{r ref-custom}
+res_custom <- esm_compare(
+  data           = df,
+  soil_prop      = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  reference_mode = "custom",
+  custom_mass    = 900,
+  interp         = "spline",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+res_custom$targets
+```
+
+---
+
+## Interpolation methods
+
+The `interp` argument controls how the C(M) curve is fitted between observed 
+nodes. The choice matters most when the reference mass falls between two 
+observed points (interpolation) or beyond the last observed point 
+(extrapolation).
+
+### `"spline"` — cubic spline (recommended)
+
+Fits a natural cubic spline through the C(M) nodes. Captures curvature in 
+the SOC profile, which is common in most soils (SOC decreases non-linearly 
+with depth and mass). **Recommended when ≥ 3 depth intervals are available.**
+
+```{r interp-spline}
+res_spline <- esm_compare(
+  data = df, soil_prop = "soc",
+  profile_by = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min", reference_by = c("Site", "yr"),
+  interp = "spline", soil_prop_unit = "pct", som_from_soc = TRUE
+)
+```
+
+### `"linear"` — linear interpolation
+
+Connects C(M) nodes with straight line segments. Simpler and more conservative 
+than spline, but may underestimate curvature. **Recommended when only 2 depth 
+intervals are available**, as cubic splines require at least 3 points.
+
+```{r interp-linear}
+res_linear <- esm_compare(
+  data = df, soil_prop = "soc",
+  profile_by = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min", reference_by = c("Site", "yr"),
+  interp = "linear", soil_prop_unit = "pct", som_from_soc = TRUE
+)
+```
+
+### `"step"` — step function
+
+Assumes SOC concentration is constant within each depth interval. The C(M) 
+curve is a staircase. Most conservative option — no smoothing between layers. 
+Useful when profiles have very few depth intervals or when between-layer 
+interpolation is not desired.
+
+```{r interp-step}
+res_step <- esm_compare(
+  data = df, soil_prop = "soc",
+  profile_by = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min", reference_by = c("Site", "yr"),
+  interp = "step", soil_prop_unit = "pct", som_from_soc = TRUE
+)
+```
+
+### Comparing methods
+
+```{r compare-methods, fig.width = 7, fig.height = 4}
+# Extract 0-30 cm layer, Site A, yr 2010
+extract_layer <- function(res, method_name, upper_val, lower_val) {
+  sub <- res$layer[res$layer$Site == "A" &
+                   res$layer$yr   == 2010 &
+                   res$layer$upper == upper_val &
+                   res$layer$lower == lower_val, ]
+  sub$method <- method_name
+  sub
+}
+
+df_comp <- rbind(
+  extract_layer(res_spline, "spline", 0, 10),
+  extract_layer(res_spline, "spline", 10, 30),
+  extract_layer(res_linear, "linear", 0, 10),
+  extract_layer(res_linear, "linear", 10, 30),
+  extract_layer(res_step,   "step",   0, 10),
+  extract_layer(res_step,   "step",   10, 30)
+)
+
+# Mean stock per method x trt x layer
+agg <- aggregate(layer_stock_kg_m2 ~ method + trt + upper + lower,
+                 data = df_comp, FUN = mean)
+agg$layer <- paste0(agg$upper, "-", agg$lower, " cm")
+
+library(ggplot2)
+ggplot(agg, aes(x = method, y = layer_stock_kg_m2, fill = trt)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ layer) +
+  labs(x = "Interpolation method",
+       y = expression("SOC stock (kg C m"^{-2}*")"),
+       fill = "Treatment",
+       title = "ESM stocks by interpolation method (Site A, 2010)") +
+  theme_bw()
+```
+
+---
+
+## The Shiny app
+
+`run_esmc_app()` launches an interactive simulator for exploring how bulk 
+density changes affect statistical performance when comparing SOC stocks 
+using fixed-depth (FD) vs ESM approaches.
+
+```{r run-app, eval = FALSE}
+run_esmc_app()
+```
+
+The app allows you to:
+
+- Switch between **H0** (no true SOC change — Type I error focus) and 
+  **H1** (true SOC change — power focus) scenarios
+- Control BD change magnitude, SOC stratification profile, and measurement 
+  noise
+- Run Monte Carlo simulations to estimate Type I error rates, bias, and 
+  statistical power
+- Generate power curves as a function of sample size (number of cores)
+
+This is useful for study design — understanding how many cores are needed 
+to detect a given SOC change with adequate power using ESM vs fixed-depth 
+methods.
+
+> **Note:** `run_esmc_app()` requires `shiny`, `ggplot2`, `future`, and 
+> `future.apply`. Install them with:
+> ```r
+> install.packages(c("shiny", "ggplot2", "future", "future.apply"))
+> ```
+
+---
+
+## Reference
+
+Villarino, S.H., Castellano, M., and Miguez, F.E. (2026). Towards a Unified 
+Equivalent Soil Mass Framework. *In review*.

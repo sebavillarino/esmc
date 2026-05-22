@@ -16,8 +16,12 @@ Imports:
     stats
 Suggests:
     testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
     shiny,
     ggplot2,
     future,
     future.apply
 Config/testthat/edition: 3
+VignetteBuilder: knitr
