@@ -502,6 +502,7 @@ methods.
 
 Villarino, S.H., Castellano, M., and Miguez, F.E. (2026). Towards a Unified
 Equivalent Soil Mass Framework. *In review*.
+
 Potash, E., von Haden, A.C., Bergschneider, L., Douglass, M.S., Ferrari, L.,
 Ibarra Lopez, R., Reconco Martinez, A., and Margenot, A.J. (2026). Empirical
 evaluation and recommendations for equivalent soil mass adjustment of soil

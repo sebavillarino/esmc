@@ -23,7 +23,11 @@ esm_plot_spline(
 }
 \arguments{
 \item{esm_out}{List. Output from \code{\link{esm_compare}}, which must
-contain elements \code{$profile_mass} and \code{$diagnostics}.}
+contain elements \code{$profile_mass} and \code{$diagnostics}.
+This requires \code{esm_compare()} to be called with
+\code{output = "both"} (default) or \code{output = "cumulative"}.
+It will not work with \code{output = "layers"} because the plot
+requires the cumulative C(M) values stored in \code{$diagnostics}.}
 
 \item{profile_by}{Character vector. Same \code{profile_by} used in
 \code{esm_compare()} — identifies individual cores/profiles.}
@@ -54,8 +58,8 @@ the reference mineral soil mass.}
 \item{color_extrap}{Character. Color for extrapolation region elements
 (extended curve, target line, shading). Default \code{"#d73027"} (red).}
 
-\item{extrap_alpha}{Numeric \link{0,1}. Transparency of the extrapolation
-shaded region. Default 0.10.}
+\item{extrap_alpha}{Numeric in the range 0 to 1. Transparency of the
+extrapolation shaded region. Default 0.10.}
 
 \item{free_scales}{Logical. If TRUE, each panel gets its own axis scales.
 Default FALSE (shared scales for comparability).}
@@ -77,6 +81,7 @@ unreliable at deep cumulative depths (e.g. 0–100 cm).
 result <- esm_compare(
   data = my_data, rvar = "soc",
   profile_by = c("site", "yr", "trt", "rep"),
+  output = "both",
   reference_mode = "min", interp = "spline"
 )
 esm_plot_spline(result, profile_by = c("site", "yr", "trt", "rep"))
