@@ -301,7 +301,11 @@ str(result$meta)
 
 `esm_plot_spline()` visualizes the C(M) curve for each profile: observed
 nodes as points and the fitted interpolation curve as a line. A vertical
-dashed line marks the reference mass.
+dashed line marks the reference mass. 
+
+**Note:** `esm_plot_spline()` requires `$diagnostics` to be present in the
+output of `esm_compare()`. This is included when `output = "both"` (default)
+or `output = "cumulative"`, but **not** when `output = "layers"`.
 
 - **Blue line** — target is within the observed data range (interpolation)
 - **Red line + shading** — target exceeds the observed data range (extrapolation)

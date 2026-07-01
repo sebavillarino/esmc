@@ -25,6 +25,10 @@
 #'
 #' @param esm_out List. Output from \code{\link{esm_compare}}, which must
 #'   contain elements \code{$profile_mass} and \code{$diagnostics}.
+#'   This requires \code{esm_compare()} to be called with
+#'   \code{output = "both"} (default) or \code{output = "cumulative"}.
+#'   It will not work with \code{output = "layers"} because the plot
+#'   requires the cumulative C(M) values stored in \code{$diagnostics}.
 #' @param profile_by Character vector. Same \code{profile_by} used in
 #'   \code{esm_compare()} — identifies individual cores/profiles.
 #' @param interp Character. Interpolation method: \code{"spline"} (default)
@@ -55,6 +59,7 @@
 #' result <- esm_compare(
 #'   data = my_data, rvar = "soc",
 #'   profile_by = c("site", "yr", "trt", "rep"),
+#'   output = "both",
 #'   reference_mode = "min", interp = "spline"
 #' )
 #' esm_plot_spline(result, profile_by = c("site", "yr", "trt", "rep"))
