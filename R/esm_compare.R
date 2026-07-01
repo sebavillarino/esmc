@@ -603,12 +603,16 @@ esm_compare <- function(
       }
     } else if (interp == "spline") {
       if (npts < 3) {
-        note <- "INSUFFICIENT_POINTS_SPLINE"
-        if (npts >= 2) esm_cum <- .esm_eval_linear(x, y, mass_ref)
-      } else {
-        f       <- stats::splinefun(x, y, method = "natural")
-        esm_cum <- f(mass_ref)
+        stop(
+          "interp = 'spline' requires at least 2 depth intervals (3 C(M) points ",
+          "including the (0, 0) anchor), but profile '",
+          paste(pm[1, profile_by], collapse = " | "),
+          "' has only ", npts - 1, " interval(s). ",
+          "Use interp = 'linear' instead."
+        )
       }
+      f       <- stats::splinefun(x, y, method = "natural")
+      esm_cum <- f(mass_ref)
     }
 
     base_row <- pm[1, c(profile_by, strata_cols), drop = FALSE]
@@ -821,10 +825,14 @@ esm_compare <- function(
     } else {
       # spline
       if (length(unique(x)) < 3) {
-        .esm_eval_linear(x, y, M)
-      } else {
-        stats::splinefun(x, y, method = "natural")(M)
+        stop(
+          "interp = 'spline' requires at least 2 depth intervals (3 C(M) points ",
+          "including the (0, 0) anchor), but a profile has only ",
+          length(unique(x)) - 1, " interval(s). ",
+          "Use interp = 'linear' instead."
+        )
       }
+      stats::splinefun(x, y, method = "natural")(M)
     }
     list(value = value, extrapolated = extrapolated)
   }

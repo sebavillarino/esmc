@@ -417,8 +417,12 @@ res_spline <- esm_compare(
 ### `"linear"` — linear interpolation
 
 Connects C(M) nodes with straight line segments. Simpler and more conservative
-than spline, but may underestimate curvature. **Recommended when only 2 depth
-intervals are available**, as cubic splines require at least 3 points.
+than spline, but may underestimate curvature. **Recommended when only 1 depth
+interval is available.** With 2 or more intervals, the (0, 0) anchor counts as
+an additional point, giving the spline sufficient points to fit. In practice,
+spline generally reduces systematic errors further than linear when multiple
+layers are available, though performance depends on the depthwise SOC
+distribution of the soil (Potash et al., 2026).
 
 ```{r interp-linear}
 res_linear <- esm_compare(
@@ -498,3 +502,8 @@ methods.
 
 Villarino, S.H., Castellano, M., and Miguez, F.E. (2026). Towards a Unified
 Equivalent Soil Mass Framework. *In review*.
+Potash, E., von Haden, A.C., Bergschneider, L., Douglass, M.S., Ferrari, L.,
+Ibarra Lopez, R., Reconco Martinez, A., and Margenot, A.J. (2026). Empirical
+evaluation and recommendations for equivalent soil mass adjustment of soil
+organic carbon stocks. *Geoderma*, 469, 117801.
+https://doi.org/10.1016/j.geoderma.2026.117801
