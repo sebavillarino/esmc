@@ -12,6 +12,11 @@
 # a shaded background region — making the extrapolation visually obvious.
 # =============================================================================
 
+utils::globalVariables(c(
+  "xmin", "xmax",
+  "cum_mineral_mass_kg_m2", "cum_stock_kg_m2",
+  "target", "target_type"
+))
 
 #' Plot spline (or linear) interpolation fit for ESM profiles
 #'
@@ -47,8 +52,8 @@
 #'   (curve, target line). Default \code{"#2166ac"} (blue).
 #' @param color_extrap Character. Color for extrapolation region elements
 #'   (extended curve, target line, shading). Default \code{"#d73027"} (red).
-#' @param extrap_alpha Numeric [0,1]. Transparency of the extrapolation
-#'   shaded region. Default 0.10.
+#' @param extrap_alpha Numeric in the range 0 to 1. Transparency of the
+#' extrapolation shaded region. Default 0.10.
 #' @param free_scales Logical. If TRUE, each panel gets its own axis scales.
 #'   Default FALSE (shared scales for comparability).
 #'
@@ -68,6 +73,7 @@
 #' @importFrom ggplot2 ggplot aes geom_point geom_line geom_vline geom_rect
 #'   facet_wrap labs theme_bw theme scale_color_manual scale_linetype_manual
 #' @export
+
 esm_plot_spline <- function(
     esm_out,
     profile_by,

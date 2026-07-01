@@ -4,3 +4,8 @@
 ^\.claude$
 ^doc$
 ^Meta$
+^Pckg_icon\.bmp$
+^Pckg_icon\.jpg$
+^Pckg_icon\.png$
+^pckg_icon\.svg$
+^LICENSE\.md$

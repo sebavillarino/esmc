@@ -133,6 +133,8 @@
 #' result2$cumulative
 #' }
 #'
+#' @importFrom stats setNames
+#'
 #' @export
 esm_compare <- function(
     data,
