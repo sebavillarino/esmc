@@ -119,12 +119,12 @@ simulate_once <- function(
     soc_effect_depth = c("full", "surface"),
     seed      = NULL,
     n_cores   = 3,
-    paired    = TRUE,
+    paired    = FALSE,
     layers    = list(c(0,15), c(15,30), c(30,50), c(50,70), c(70,100)),
     soc_prof  = c("high", "mid", "low"),
     c0 = NULL, c_end = NULL, m0 = NULL,
     z0_cm      = 0.5,
-    bd_core_cv = 0.07,
+    bd_core_cv = 0.10,
     bd_lab_sd  = 0.03,
     c_lab_cv   = 0.05,
     dz_mass    = 0.1,
@@ -172,6 +172,10 @@ simulate_once <- function(
 
   make_bd_fun <- function(trt_name, core_mult, bd_increase_pct,
                            z0_cm = 0.5, z_effect_max = 50, w_transition = 6) {
+    # force() evaluates arguments now; otherwise lazy evaluation inside the
+    # for-loop below makes every core use the multiplier of the last core
+    force(trt_name); force(core_mult); force(bd_increase_pct)
+    force(z0_cm); force(z_effect_max); force(w_transition)
     function(z) {
       bd0 <- bd_wiese(z, z0_cm = z0_cm) * core_mult
       if (trt_name == "t1")
@@ -419,7 +423,7 @@ ui <- fluidPage(
         "Cores per treatment used in the main simulation."
       ),
       with_info(
-        checkboxInput("paired", "Paired cores (same BD core multiplier)", value = TRUE),
+        checkboxInput("paired", "Paired cores (same BD core multiplier)", value = FALSE),
         "If TRUE, each Treatment core shares the same BD multiplier as its paired Reference core."
       ),
       with_info(
@@ -473,7 +477,7 @@ ui <- fluidPage(
       h4("Noise model"),
       with_info(
         sliderInput("bd_core_cv", "BD core CV",
-                    min = 0, max = 0.30, value = 0.07, step = 0.01),
+                    min = 0, max = 0.30, value = 0.10, step = 0.01),
         "Between-core BD variability (lognormal multiplier with mean 1)."
       ),
       with_info(

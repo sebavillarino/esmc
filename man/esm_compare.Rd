@@ -101,7 +101,13 @@ mineral mass and cumulative stock, including the (0, 0) anchor.
 Useful for diagnostic plotting with \code{esm_plot_spline}.}
 \item{\code{layer}}{(\code{output = "layers"} or \code{"both"})
 ESM-adjusted stock per depth layer and profile, computed as
-C(M_lower) - C(M_upper). Includes column \code{extrapolated}.}
+C(M_lower) - C(M_upper). Layers are a non-overlapping partition of all
+sampled boundaries within each stratum (defined by \code{reference_by}),
+so every profile is evaluated on the same layers and layer stocks add up
+to cumulative stocks. When depth increments differ among profiles (e.g.
+between years), layers not sampled in a given profile are estimated by
+interpolation along that profile's C(M) curve. Includes column
+\code{extrapolated}.}
 \item{\code{targets}}{(\code{output = "layers"} or \code{"both"})
 Reference mineral mass at each depth boundary.}
 \item{\code{cumulative}}{(\code{output = "cumulative"} or \code{"both"})
@@ -126,6 +132,11 @@ Comparing SOC stocks across unequal soil masses can produce artifacts
 by evaluating a continuous C(M) curve — cumulative SOC stock as a function
 of cumulative mineral soil mass — for each profile, and interpolating to a
 common reference mass.
+
+Stocks are computed as concentration times total soil mass, because
+concentrations are expressed per unit of total soil mass. Mineral soil
+mass (total mass minus SOM, when SOM is supplied or estimated) is used only
+as the coordinate along which profiles are standardized.
 
 When the reference mass exceeds the maximum observed mass of a profile,
 the function extrapolates beyond the observed data range. Extrapolated

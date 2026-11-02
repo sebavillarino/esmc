@@ -6,9 +6,9 @@
 #' confidence-interval overlap, or both.
 #'
 #' By default, this function uses fixed-depth (FD) intervals defined by `upper` and
-#' `lower`. Stocks are computed on a mineral-soil-mass basis by subtracting SOM mass
-#' from total soil mass, using either measured SOM (`som_col`) or optional estimation
-#' from SOC (`som_from_soc`).
+#' `lower`. Stocks are computed as concentration times total soil mass. The SOM
+#' options (`som_col`, `som_from_soc`) only affect the mineral mass column and
+#' the SOM flags; they do not change the stocks in fixed-depth mode.
 #'
 #' @param data A data.frame containing soil layers and replicates. Must include:
 #'   `upper`, `lower` (cm), `bd` (g/cm3), replicate column `rep`, concentration column
@@ -158,7 +158,8 @@ esm_uncert_depth <- function(
 
   # mineral mass + stock per replicate
   df$mineral_mass_kg_m2 <- df$soil_mass_kg_m2 * (1 - som_frac_clamped)
-  df$stock_layer_kg_m2 <- df$rvar_frac * df$mineral_mass_kg_m2
+  # Stock = concentration (per unit total soil mass) x total soil mass
+  df$stock_layer_kg_m2 <- df$rvar_frac * df$soil_mass_kg_m2
 
   # group by stratum core_by
   gid <- interaction(df[core_by], drop = TRUE)

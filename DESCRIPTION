@@ -1,6 +1,6 @@
 Package: esmc
 Title: Equivalent Soil Mass Comparisons
-Version: 0.3.0
+Version: 0.3.1
 Authors@R:
     person(given = "Sebastian",
            family = "Villarino",
@@ -11,7 +11,6 @@ Description: Provides methods to perform equivalent soil mass comparisons
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Imports:
     ggplot2,
     stats
@@ -24,3 +23,4 @@ Suggests:
     future.apply
 Config/testthat/edition: 3
 VignetteBuilder: knitr
+Config/roxygen2/version: 8.1.1

@@ -98,7 +98,7 @@ confidence-interval overlap, or both.
 }
 \details{
 By default, this function uses fixed-depth (FD) intervals defined by \code{upper} and
-\code{lower}. Stocks are computed on a mineral-soil-mass basis by subtracting SOM mass
-from total soil mass, using either measured SOM (\code{som_col}) or optional estimation
-from SOC (\code{som_from_soc}).
+\code{lower}. Stocks are computed as concentration times total soil mass. The SOM
+options (\code{som_col}, \code{som_from_soc}) only affect the mineral mass column and
+the SOM flags; they do not change the stocks in fixed-depth mode.
 }

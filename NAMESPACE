@@ -4,16 +4,18 @@ export(esm_compare)
 export(esm_plot_spline)
 export(esm_uncert_depth)
 export(run_esmc_app)
-importFrom(ggplot2,aes)
-importFrom(ggplot2,facet_wrap)
-importFrom(ggplot2,geom_line)
-importFrom(ggplot2,geom_point)
-importFrom(ggplot2,geom_rect)
-importFrom(ggplot2,geom_vline)
-importFrom(ggplot2,ggplot)
-importFrom(ggplot2,labs)
-importFrom(ggplot2,scale_color_manual)
-importFrom(ggplot2,scale_linetype_manual)
-importFrom(ggplot2,theme)
-importFrom(ggplot2,theme_bw)
+importFrom(ggplot2,
+  aes,
+  facet_wrap,
+  geom_line,
+  geom_point,
+  geom_rect,
+  geom_vline,
+  ggplot,
+  labs,
+  scale_color_manual,
+  scale_linetype_manual,
+  theme,
+  theme_bw
+)
 importFrom(stats,setNames)

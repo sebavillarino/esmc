@@ -2,7 +2,15 @@
 # esmc — Equivalent Soil Mass
 # Unified comparison function: esm_compare()
 #
-# Version: 0.3.0
+# Version: 0.3.1
+#
+# Changes from v0.3.0:
+#   - Layers branch: profiles are evaluated on a non-overlapping partition of
+#     the union of sampled boundaries within each stratum (no duplicated
+#     boundaries when depth increments differ among profiles)
+#   - Warning when reference masses are not monotone with depth
+#   - Stocks computed as concentration x total soil mass (previously x mineral
+#     mass); mineral mass is used only as the ESM coordinate
 #
 # Changes from v0.2.0:
 #   - smm -> mass in all internal and output column names
@@ -25,6 +33,11 @@
 #' by evaluating a continuous C(M) curve — cumulative SOC stock as a function
 #' of cumulative mineral soil mass — for each profile, and interpolating to a
 #' common reference mass.
+#'
+#' Stocks are computed as concentration times total soil mass, because
+#' concentrations are expressed per unit of total soil mass. Mineral soil
+#' mass (total mass minus SOM, when SOM is supplied or estimated) is used only
+#' as the coordinate along which profiles are standardized.
 #'
 #' When the reference mass exceeds the maximum observed mass of a profile,
 #' the function extrapolates beyond the observed data range. Extrapolated
@@ -90,7 +103,13 @@
 #'     Useful for diagnostic plotting with \code{esm_plot_spline}.}
 #'   \item{\code{layer}}{(\code{output = "layers"} or \code{"both"})
 #'     ESM-adjusted stock per depth layer and profile, computed as
-#'     C(M_lower) - C(M_upper). Includes column \code{extrapolated}.}
+#'     C(M_lower) - C(M_upper). Layers are a non-overlapping partition of all
+#'     sampled boundaries within each stratum (defined by \code{reference_by}),
+#'     so every profile is evaluated on the same layers and layer stocks add up
+#'     to cumulative stocks. When depth increments differ among profiles (e.g.
+#'     between years), layers not sampled in a given profile are estimated by
+#'     interpolation along that profile's C(M) curve. Includes column
+#'     \code{extrapolated}.}
 #'   \item{\code{targets}}{(\code{output = "layers"} or \code{"both"})
 #'     Reference mineral mass at each depth boundary.}
 #'   \item{\code{cumulative}}{(\code{output = "cumulative"} or \code{"both"})
@@ -250,6 +269,8 @@ esm_compare <- function(
       custom_mass    = custom_mass
     )
 
+    .esm_check_targets_monotone(targets_tbl, reference_by)
+
     layer_tbl <- .esm_layer_stocks_from_targets(
       profile_mass = profile_mass,
       layers_tbl   = layers_tbl,
@@ -326,7 +347,7 @@ esm_compare <- function(
     profile_mass = profile_mass,
     meta = list(
       package        = "esmc",
-      version        = "0.3.0",
+      version        = "0.3.1",
       fn             = "esm_compare",
       principle      = "Depth is sampling; mineral soil mass is comparison.",
       output         = output,
@@ -478,7 +499,9 @@ esm_compare <- function(
     # Soil property as fraction -> interval stock (kg/m2)
     g$soil_prop_frac  <- if (soil_prop_unit == "pct") g[[soil_prop]] / 100
                          else                          g[[soil_prop]] / 1000
-    g$stock_kg_m2     <- g$soil_prop_frac * g$mineral_mass_kg_m2
+    # Stock = concentration (per unit total soil mass) x total soil mass.
+    # Mineral mass is used only as the coordinate for mass standardization.
+    g$stock_kg_m2     <- g$soil_prop_frac * g$soil_mass_kg_m2
     g$cum_stock_kg_m2 <- cumsum(
       replace(g$stock_kg_m2, is.na(g$stock_kg_m2), 0))
     g
@@ -675,21 +698,29 @@ esm_compare <- function(
   idx[1]
 }
 
-# Layer definitions from sampled depth intervals
+# Layer definitions: non-overlapping partition of the union of sampled
+# boundaries within each stratum. When depth increments differ among
+# profiles (e.g. between years), every profile is evaluated on the same
+# set of contiguous, non-overlapping layers, so each boundary appears once
+# per profile and layer stocks add up to cumulative stocks.
 .esm_layers_from_data <- function(interval_tbl, reference_by) {
+  make_partition <- function(g) {
+    b <- sort(unique(c(g$upper, g$lower)))
+    data.frame(upper = utils::head(b, -1), lower = utils::tail(b, -1))
+  }
   if (is.null(reference_by)) {
-    out <- unique(interval_tbl[, c("upper", "lower"), drop = FALSE])
-    out <- out[order(out$upper, out$lower), , drop = FALSE]
+    out <- make_partition(interval_tbl)
     rownames(out) <- NULL
     return(out)
   }
   key    <- interaction(interval_tbl[reference_by], drop = TRUE)
   groups <- split(interval_tbl, key)
-  out    <- lapply(groups, function(g)
-    unique(g[, c(reference_by, "upper", "lower"), drop = FALSE]))
-  out    <- do.call(rbind, out)
-  out    <- out[do.call(order, out[, c(reference_by, "upper", "lower"),
-                                   drop = FALSE]), , drop = FALSE]
+  out    <- do.call(rbind, lapply(groups, function(g) {
+    part <- make_partition(g)
+    cbind(g[rep(1, nrow(part)), reference_by, drop = FALSE], part)
+  }))
+  out <- out[do.call(order, out[, c(reference_by, "upper", "lower"),
+                                drop = FALSE]), , drop = FALSE]
   rownames(out) <- NULL
   out
 }
@@ -763,7 +794,8 @@ esm_compare <- function(
         data.frame(lower = b, target_mass_kg_m2 = fun_bnd(sub),
                    stringsAsFactors = FALSE)
       }))
-      cbind(base, tt)
+      rownames(base) <- NULL
+      cbind(base, tt, row.names = NULL)
     }))
   }
 
@@ -803,6 +835,7 @@ esm_compare <- function(
         data.frame(lower = 0, target_mass_kg_m2 = 0), targets_tbl)
   } else {
     strata  <- unique(targets_tbl[, reference_by, drop = FALSE])
+    rownames(strata) <- NULL
     add0    <- cbind(strata, data.frame(lower = 0, target_mass_kg_m2 = 0))
     targets_tbl <- rbind(add0, targets_tbl)
   }
@@ -848,6 +881,7 @@ esm_compare <- function(
   for (i in seq_along(pm_groups)) {
     pm      <- pm_groups[[i]]
     prof_id <- pm[1, profile_by, drop = FALSE]
+    rownames(prof_id) <- NULL
 
     if (is.null(reference_by)) {
       tsub <- targets_tbl
@@ -892,4 +926,23 @@ esm_compare <- function(
   out <- do.call(rbind, out_list)
   rownames(out) <- NULL
   out
+}
+
+
+# Warn if reference masses do not increase with depth within a stratum
+# (possible when boundaries come from different sets of profiles)
+.esm_check_targets_monotone <- function(targets_tbl, reference_by) {
+  key <- if (is.null(reference_by)) rep("ALL", nrow(targets_tbl)) else
+    interaction(targets_tbl[reference_by], drop = TRUE)
+  bad <- vapply(split(targets_tbl, key), function(g) {
+    g <- g[order(g$lower), , drop = FALSE]
+    any(diff(g$target_mass_kg_m2) <= 0)
+  }, logical(1))
+  if (any(bad))
+    warning("Reference masses do not increase monotonically with depth in: ",
+            paste(names(bad)[bad], collapse = ", "),
+            ". Some layer stocks may be negative. This can happen when depth ",
+            "increments differ among profiles; consider a finer reference_by.",
+            call. = FALSE)
+  invisible(NULL)
 }
