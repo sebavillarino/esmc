@@ -36,8 +36,9 @@ utils::globalVariables(c(
 #'   requires the cumulative C(M) values stored in \code{$diagnostics}.
 #' @param profile_by Character vector. Same \code{profile_by} used in
 #'   \code{esm_compare()} — identifies individual cores/profiles.
-#' @param interp Character. Interpolation method: \code{"spline"} (default)
-#'   or \code{"linear"}. Should match the method used in \code{esm_compare()}.
+#' @param interp Character. Interpolation method: \code{"spline"} (default),
+#'   \code{"monotone"}, \code{"hyman"} or \code{"linear"}. Should match
+#'   the method used in \code{esm_compare()}.
 #' @param n_grid Integer. Number of points used to draw each curve segment.
 #'   Default 200.
 #' @param x_lab Character. X-axis label.
@@ -77,7 +78,7 @@ utils::globalVariables(c(
 esm_plot_spline <- function(
     esm_out,
     profile_by,
-    interp        = c("spline", "linear"),
+    interp        = c("spline", "monotone", "hyman", "linear"),
     n_grid        = 200,
     x_lab         = "Cumulative mineral soil mass (kg m\u207b\u00b2)",
     y_lab         = "Cumulative SOC stock (kg C m\u207b\u00b2)",
@@ -168,16 +169,11 @@ esm_plot_spline <- function(
 
     # Build the spline/linear function over the full observed range
     fit_fn <- tryCatch({
-      if (interp == "spline") {
-        if (npts < 3) {
-          warning("Core '", lbl, "' has < 3 points; using linear interpolation.")
-          function(xout) stats::approx(x, y, xout = xout, method = "linear", rule = 2)$y
-        } else {
-          f <- stats::splinefun(x, y, method = "natural")
-          f
-        }
+      if (interp != "linear" && npts < 3) {
+        warning("Core '", lbl, "' has < 3 points; using linear interpolation.")
+        .esm_interp_fun(x, y, "linear")
       } else {
-        function(xout) stats::approx(x, y, xout = xout, method = "linear", rule = 2)$y
+        .esm_interp_fun(x, y, interp)
       }
     }, error = function(e) {
       warning("Could not fit curve for core '", lbl, "': ", conditionMessage(e))

@@ -13,7 +13,7 @@ esm_compare(
   reference_by = NULL,
   ref_trt = NULL,
   custom_mass = NULL,
-  interp = c("spline", "linear", "step"),
+  interp = c("spline", "monotone", "hyman", "linear", "step"),
   soil_prop_unit = c("pct", "g_kg"),
   som_col = NULL,
   som_unit = c("pct", "g_kg", "frac"),
@@ -58,10 +58,24 @@ Required when \code{reference_mode = "ref_trt"}.}
 \item{custom_mass}{Numeric. Reference mineral soil mass in kg/m2. Required
 when \code{reference_mode = "custom"}.}
 
-\item{interp}{Character. Interpolation method for the C(M) curve:
-\code{"spline"} (cubic spline, recommended when >= 3 depth intervals are
-available), \code{"linear"} (recommended for 2 intervals), or
-\code{"step"} (constant within interval).}
+\item{interp}{Character. Interpolation method for the cumulative curve
+C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
+at least 2 depth intervals (3 points including the (0, 0) anchor):
+\itemize{
+\item \code{"spline"}: natural cubic spline (\code{stats::splinefun},
+\code{method = "natural"}). Extrapolates linearly.
+\item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;
+\code{method = "monoH.FC"}). Locally defined and never decreasing, so
+layer stocks cannot be negative. Extrapolates linearly with the slope
+of the last segment, i.e. assumes that the concentration below the
+deepest sample equals that of the deepest sampled layer.
+\item \code{"hyman"}: cubic spline with Hyman monotonicity filter
+(\code{method = "hyman"}), as used by von Haden et al. (2020).
+Extrapolates with the cubic polynomial of the end interval.
+\item \code{"linear"}: linear interpolation (recommended when only one
+or two depth intervals are available). Extrapolates linearly.
+\item \code{"step"}: constant within interval.
+}}
 
 \item{soil_prop_unit}{Character. Unit of \code{soil_prop}: \code{"pct"}
 (percent, 0-100) or \code{"g_kg"} (g per kg).}

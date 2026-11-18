@@ -2,7 +2,13 @@
 # esmc — Equivalent Soil Mass
 # Unified comparison function: esm_compare()
 #
-# Version: 0.3.1
+# Version: 0.3.2
+#
+# Changes from v0.3.1:
+#   - New interpolation options: interp = "monotone" (Fritsch-Carlson monotone
+#     cubic Hermite spline) and interp = "hyman" (cubic spline with Hyman
+#     monotonicity filter, as in von Haden et al. 2020)
+#   - All curve evaluations use a single helper, .esm_interp_fun()
 #
 # Changes from v0.3.0:
 #   - Layers branch: profiles are evaluated on a non-overlapping partition of
@@ -69,10 +75,24 @@
 #'   Required when \code{reference_mode = "ref_trt"}.
 #' @param custom_mass Numeric. Reference mineral soil mass in kg/m2. Required
 #'   when \code{reference_mode = "custom"}.
-#' @param interp Character. Interpolation method for the C(M) curve:
-#'   \code{"spline"} (cubic spline, recommended when >= 3 depth intervals are
-#'   available), \code{"linear"} (recommended for 2 intervals), or
-#'   \code{"step"} (constant within interval).
+#' @param interp Character. Interpolation method for the cumulative curve
+#'   C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
+#'   at least 2 depth intervals (3 points including the (0, 0) anchor):
+#'   \itemize{
+#'     \item \code{"spline"}: natural cubic spline (\code{stats::splinefun},
+#'       \code{method = "natural"}). Extrapolates linearly.
+#'     \item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;
+#'       \code{method = "monoH.FC"}). Locally defined and never decreasing, so
+#'       layer stocks cannot be negative. Extrapolates linearly with the slope
+#'       of the last segment, i.e. assumes that the concentration below the
+#'       deepest sample equals that of the deepest sampled layer.
+#'     \item \code{"hyman"}: cubic spline with Hyman monotonicity filter
+#'       (\code{method = "hyman"}), as used by von Haden et al. (2020).
+#'       Extrapolates with the cubic polynomial of the end interval.
+#'     \item \code{"linear"}: linear interpolation (recommended when only one
+#'       or two depth intervals are available). Extrapolates linearly.
+#'     \item \code{"step"}: constant within interval.
+#'   }
 #' @param soil_prop_unit Character. Unit of \code{soil_prop}: \code{"pct"}
 #'   (percent, 0-100) or \code{"g_kg"} (g per kg).
 #' @param som_col Character or NULL. Name of a column containing measured
@@ -164,7 +184,7 @@ esm_compare <- function(
     reference_by   = NULL,
     ref_trt        = NULL,
     custom_mass    = NULL,
-    interp         = c("spline", "linear", "step"),
+    interp         = c("spline", "monotone", "hyman", "linear", "step"),
     soil_prop_unit = c("pct", "g_kg"),
 
     som_col        = NULL,
@@ -347,7 +367,7 @@ esm_compare <- function(
     profile_mass = profile_mass,
     meta = list(
       package        = "esmc",
-      version        = "0.3.1",
+      version        = "0.3.2",
       fn             = "esm_compare",
       principle      = "Depth is sampling; mineral soil mass is comparison.",
       output         = output,
@@ -616,27 +636,11 @@ esm_compare <- function(
     esm_cum <- NA_real_
     note    <- NULL
 
-    if (interp == "step") {
-      esm_cum <- .esm_eval_step(x, y, mass_ref)
-    } else if (interp == "linear") {
-      if (npts < 2) {
-        note <- "INSUFFICIENT_POINTS_LINEAR"
-      } else {
-        # rule = 2: extrapolates using boundary value for linear;
-        # for true extrapolation we use the slope of the last segment
-        esm_cum <- .esm_eval_linear(x, y, mass_ref)
-      }
-    } else if (interp == "spline") {
-      if (npts < 3) {
-        stop(
-          "interp = 'spline' requires at least 2 depth intervals (3 C(M) points ",
-          "including the (0, 0) anchor), but profile '",
-          paste(pm[1, profile_by], collapse = " | "),
-          "' has only ", npts - 1, " interval(s). ",
-          "Use interp = 'linear' instead."
-        )
-      }
-      f       <- stats::splinefun(x, y, method = "natural")
+    if (interp == "linear" && npts < 2) {
+      note <- "INSUFFICIENT_POINTS_LINEAR"
+    } else {
+      f <- .esm_interp_fun(x, y, interp,
+                           label = paste(pm[1, profile_by], collapse = " | "))
       esm_cum <- f(mass_ref)
     }
 
@@ -686,6 +690,38 @@ esm_compare <- function(
     return(y[n] + slope * (xout - x[n]))
   }
   stats::approx(x, y, xout = xout, method = "linear", rule = 1)$y
+}
+
+# Interpolating function for the C(M) curve, shared by esm_compare() and
+# esm_plot_spline(). Returns a function of mass (vectorized).
+#   spline   : natural cubic spline, linear extrapolation
+#   monotone : Fritsch-Carlson monotone cubic Hermite spline; linear
+#              extrapolation with the end slopes (last-segment secant)
+#   hyman    : cubic spline with Hyman monotonicity filter (von Haden et al.
+#              2020); cubic extrapolation, as in stats::spline(method = "hyman")
+#   linear   : piecewise linear, linear extrapolation with end-segment slopes
+#   step     : constant within interval
+.esm_interp_fun <- function(x, y, interp, label = NULL) {
+  ord <- order(x); x <- x[ord]; y <- y[ord]
+  if (interp == "step")
+    return(function(xout) vapply(xout, function(m) .esm_eval_step(x, y, m), numeric(1)))
+  if (interp == "linear")
+    return(function(xout) vapply(xout, function(m) .esm_eval_linear(x, y, m), numeric(1)))
+  if (length(unique(x)) < 3) {
+    stop(
+      "interp = '", interp, "' requires at least 2 depth intervals (3 C(M) ",
+      "points including the (0, 0) anchor), but ",
+      if (!is.null(label)) paste0("profile '", label, "'") else "a profile",
+      " has only ", length(unique(x)) - 1, " interval(s). ",
+      "Use interp = 'linear' instead."
+    )
+  }
+  method <- switch(interp,
+                   spline   = "natural",
+                   monotone = "monoH.FC",
+                   hyman    = "hyman",
+                   stop("Unknown interp: ", interp))
+  stats::splinefun(x, y, method = method)
 }
 
 # Row matching helper
@@ -824,7 +860,7 @@ esm_compare <- function(
 .esm_layer_stocks_from_targets <- function(
     profile_mass, layers_tbl, targets_tbl,
     profile_by, reference_by = NULL,
-    interp = c("spline", "linear", "step")
+    interp = c("spline", "monotone", "hyman", "linear", "step")
 ) {
   interp <- match.arg(interp)
 
@@ -853,22 +889,7 @@ esm_compare <- function(
     max_x        <- x[length(x)]
     extrapolated <- M > max_x
 
-    value <- if (interp == "step") {
-      .esm_eval_step(x, y, M)
-    } else if (interp == "linear") {
-      .esm_eval_linear(x, y, M)
-    } else {
-      # spline
-      if (length(unique(x)) < 3) {
-        stop(
-          "interp = 'spline' requires at least 2 depth intervals (3 C(M) points ",
-          "including the (0, 0) anchor), but a profile has only ",
-          length(unique(x)) - 1, " interval(s). ",
-          "Use interp = 'linear' instead."
-        )
-      }
-      stats::splinefun(x, y, method = "natural")(M)
-    }
+    value <- .esm_interp_fun(x, y, interp)(M)
     list(value = value, extrapolated = extrapolated)
   }
 

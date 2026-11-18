@@ -1,3 +1,19 @@
+# esmc 0.3.2
+
+* `esm_compare()`: two new interpolation methods for the cumulative curve C(M):
+  * `interp = "monotone"`: monotone cubic Hermite spline (Fritsch-Carlson,
+    `stats::splinefun(method = "monoH.FC")`). Locally defined and never
+    decreasing, so layer stocks cannot be negative. Extrapolates linearly with
+    the slope of the last segment (concentration of the deepest sampled layer).
+  * `interp = "hyman"`: cubic spline with Hyman monotonicity filter, the method
+    used in the ESM script of von Haden et al. (2020). Extrapolates with the
+    cubic polynomial of the end interval.
+* The default (`interp = "spline"`, natural cubic spline) is unchanged.
+* `esm_plot_spline()`: supports the new methods and now uses the same
+  interpolating function as `esm_compare()`. With `interp = "linear"` the
+  extrapolated segment now follows the slope of the last segment (as in
+  `esm_compare()`) instead of a constant value.
+
 # esmc 0.3.1
 
 * `esm_compare()`: SOC (or other property) stocks are now computed as
