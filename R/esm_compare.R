@@ -151,8 +151,12 @@
 #'     ESM-adjusted stock per depth layer and profile, computed as
 #'     C(M_lower) - C(M_upper). Layers are a non-overlapping partition of all
 #'     sampled boundaries within each stratum (defined by \code{reference_by}),
-#'     so every profile is evaluated on the same layers and layer stocks add up
-#'     to cumulative stocks. When depth increments differ among profiles (e.g.
+#'     or the boundaries supplied in \code{custom_mass}, so every profile is
+#'     evaluated on the same layers and layer stocks add up to the cumulative
+#'     stock at the deepest boundary. This equals \code{$cumulative} when the
+#'     cumulative reference mass is the target of the deepest boundary (always
+#'     with per-boundary \code{custom_mass}; with \code{"min"} or
+#'     \code{"ref_trt"}, when all profiles reach the deepest boundary). When depth increments differ among profiles (e.g.
 #'     between years), layers not sampled in a given profile are estimated by
 #'     interpolation along that profile's C(M) curve. Includes column
 #'     \code{extrapolated}.}
@@ -750,9 +754,15 @@ esm_compare <- function(
     diag_list[[nm]]          <- d
   }
 
+  tidy <- function(x) {
+    x <- safe_rbind(x)
+    x$.__stratum__ <- NULL      # internal column (reference_by = NULL)
+    rownames(x) <- NULL
+    x
+  }
   list(
-    cumulative  = safe_rbind(cum_list),
-    diagnostics = safe_rbind(diag_list)
+    cumulative  = tidy(cum_list),
+    diagnostics = tidy(diag_list)
   )
 }
 

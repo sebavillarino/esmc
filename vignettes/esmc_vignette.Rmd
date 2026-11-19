@@ -136,6 +136,13 @@ head(df, 10)
 | `soc` | Soil property to analyze | see `soil_prop_unit` |
 | + grouping columns | e.g. `Site`, `yr`, `rep` | — |
 
+Each profile must be a contiguous sequence of layers starting at 0 cm, because
+the cumulative mass at each boundary is the sum of the masses above it.
+`esm_compare()` checks this after removing rows with missing values:
+overlapping or duplicated layers give an error, profiles that do not start at
+0 cm are dropped, and profiles with a gap (for example, a layer removed
+because of a missing value) are truncated at the first gap, with a warning.
+
 ---
 
 ## Basic usage
@@ -207,8 +214,8 @@ result$targets
 | `target_mass_kg_m2` | Reference mineral soil mass at this boundary (kg m⁻²) |
 
 With `reference_mode = "min"`, the target at each boundary is the minimum
-cumulative mineral mass observed across all profiles within the stratum —
-this guarantees interpolation (no extrapolation) for all profiles.
+cumulative mineral mass observed across all profiles within the stratum, so
+profiles that sampled that boundary are evaluated by interpolation.
 
 ### `$cumulative` — Cumulative ESM stock at the reference mass
 
@@ -245,7 +252,7 @@ head(result$diagnostics)
 | `target_mass_kg_m2` | Reference mineral soil mass (kg m⁻²) |
 | `max_cum_mass_kg_m2` | Maximum cumulative mineral mass observed for this profile (kg m⁻²) |
 | `extrapolated` | `TRUE` if `target_mass > max_cum_mass` |
-| `note` | Warning note (e.g. `INSUFFICIENT_POINTS_SPLINE`) or `NA` |
+| `note` | Warning note (e.g. `INSUFFICIENT_POINTS_LINEAR`) or `NA` |
 
 ### `$profile_mass` — C(M) curve nodes per profile
 
@@ -330,8 +337,12 @@ is defined. This is one of the most important decisions in ESM analysis.
 
 The reference mass at each depth boundary is set to the **minimum** cumulative
 mineral mass observed across all profiles within each stratum (`reference_by`).
-This guarantees that all profiles can be evaluated by interpolation — no
-extrapolation is ever needed.
+When all profiles of a stratum share the same depth increments, every profile
+is evaluated by interpolation and no extrapolation is needed. When increments
+differ (for example, between sampling years), a boundary sampled only in some
+profiles is estimated in the others along their C(M) curves, and a profile
+shallower than the deepest boundary is extrapolated (flagged with
+`extrapolated = TRUE`).
 
 ```{r ref-min}
 res_min <- esm_compare(
@@ -351,8 +362,9 @@ sum(res_min$layer$extrapolated)
 ### `"ref_trt"` — reference treatment mass
 
 The reference mass is set to the **mean** cumulative mineral mass of a
-designated reference treatment. Profiles from other treatments may require
-extrapolation if their mass is lower than the reference treatment's mass.
+designated reference treatment. Any profile whose mass is lower than that
+mean requires extrapolation: profiles of lighter treatments and, typically,
+some profiles of the reference treatment itself.
 
 ```{r ref-trt}
 res_reftrt <- esm_compare(
@@ -372,9 +384,18 @@ sum(res_reftrt$layer$extrapolated)
 
 ### `"custom"` — user-supplied mass
 
-The reference mass is set to a fixed value supplied by the user. Useful when
-comparing results across studies or when a specific mass is theoretically
-motivated.
+The reference mass is supplied by the user. Useful when comparing results
+across studies or when a specific mass is theoretically motivated.
+`custom_mass` can be:
+
+- a **named vector**, with lower depth boundaries (cm) as names and target
+  masses (kg m⁻²) as values. Layers are defined by these boundaries (here
+  0–30, 30–50 and 50–100 cm), and the cumulative stock is evaluated at the
+  deepest one;
+- a **data.frame** with columns `lower` and `target_mass_kg_m2`, plus the
+  `reference_by` columns when targets differ among strata;
+- a **single number**, which defines only the cumulative reference mass
+  (use `output = "cumulative"`; layer stocks need one target per boundary).
 
 ```{r ref-custom}
 res_custom <- esm_compare(
@@ -382,12 +403,28 @@ res_custom <- esm_compare(
   soil_prop      = "soc",
   profile_by     = c("Site", "yr", "trt", "rep"),
   reference_mode = "custom",
-  custom_mass    = 900,
+  custom_mass    = c("30" = 250, "50" = 440, "100" = 980),
   interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
 res_custom$targets
+head(res_custom$layer[, c("Site", "yr", "trt", "rep", "upper", "lower",
+                          "layer_stock_kg_m2")])
+
+# A single value: cumulative stock only
+res_custom1 <- esm_compare(
+  data           = df,
+  soil_prop      = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  output         = "cumulative",
+  reference_mode = "custom",
+  custom_mass    = 900,
+  interp         = "hyman",
+  soil_prop_unit = "pct",
+  som_from_soc   = TRUE
+)
+head(res_custom1$cumulative)
 ```
 
 ---
@@ -404,9 +441,13 @@ observed points (interpolation) or beyond the last observed point
 Fits a cubic spline through the C(M) nodes and applies the Hyman
 monotonicity filter, so the cumulative stock never decreases with mass and no
 layer can have a negative stock. This is the method used by von Haden et al.
-(2020). Outside the observed mass range, esmc extrapolates linearly with the
-end slope of the spline. In the simulation benchmark of the esmc reference
-paper, it was the most robust method across fine and coarse sampling designs.
+(2020), with one change: at the deepest node, esmc uses the slope of the last
+interval (the concentration per unit mineral mass of the deepest sampled
+layer) and extrapolates linearly with it beyond the observed mass range. With
+few depth intervals, the end condition of the standard spline biased the last
+interval and the extrapolation. In the simulation benchmark of the esmc
+reference paper, this method had the lowest error in the upper layers of
+coarse designs and was comparable to the best method elsewhere.
 **Recommended when ≥ 2 depth intervals are available.**
 
 ```{r interp-hyman}
@@ -437,13 +478,14 @@ res_spline <- esm_compare(
 
 ### `"linear"` — linear interpolation
 
-Connects C(M) nodes with straight line segments. Simpler and more conservative
-than the spline methods, but may underestimate curvature. **Recommended when only 1 depth
-interval is available.** With 2 or more intervals, the (0, 0) anchor counts as
-an additional point, giving the spline sufficient points to fit. In practice,
-spline generally reduces systematic errors further than linear when multiple
-layers are available, though performance depends on the depthwise SOC
-distribution of the soil (Potash et al., 2026).
+Connects C(M) nodes with straight line segments, which assumes a constant
+concentration per unit mass between nodes. It cannot represent the curvature
+of C(M) within a layer, so it tends to underestimate stocks in the upper
+layers of strongly stratified soils, but it performs well in deep layers,
+where the curve is nearly straight. **Recommended when only 1 depth interval
+is available** (spline methods need at least 2 intervals; the (0, 0) anchor
+counts as an additional point). Relative performance depends on the depthwise
+SOC distribution and the sampling design (Potash et al., 2026).
 
 ```{r interp-linear}
 res_linear <- esm_compare(
@@ -517,6 +559,31 @@ methods.
 > ```r
 > install.packages(c("shiny", "ggplot2", "future", "future.apply"))
 > ```
+
+---
+
+## Uncertainty of cumulative stocks with depth
+
+`esm_uncert_depth()` describes how the uncertainty of cumulative fixed-depth
+stocks grows with depth, using the replicate cores of each stratum, and
+suggests a stopping depth based on a signal-to-noise ratio (SNR). The
+uncertainty of the cumulative stock is computed from the cumulative stock of
+each core, so the covariance among layers of the same core is included.
+`uncertainty = "sd"` (default) describes the spread among single cores;
+`uncertainty = "se"` describes the precision of the stratum mean.
+
+```{r uncert-depth}
+unc <- esm_uncert_depth(
+  data      = df,
+  rvar      = "soc",
+  core_by   = c("Site", "yr", "trt"),
+  rep       = "rep",
+  rvar_unit = "pct"
+)
+head(unc$depth[, c("Site", "yr", "trt", "lower", "n_rep",
+                   "cum_stock_mu_kg_m2", "cum_stock_sd_kg_m2", "snr")])
+unc$summary
+```
 
 ---
 

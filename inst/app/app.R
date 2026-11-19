@@ -1,6 +1,6 @@
 # =============================================================================
 # esmc Shiny App — SOC Sampling Design Simulator
-# Version: 0.3.0 (updated to esm_compare() v0.3.0 API)
+# Version: 0.4.0
 #
 # Dependencies (all in Suggests in DESCRIPTION):
 #   shiny, ggplot2, future, future.apply

@@ -24,6 +24,7 @@ remotes::install_github("sebavillarino/esmc")
 |---|---|
 | `esm_compare()` | Core function — computes ESM-adjusted stocks by layer or cumulatively |
 | `esm_plot_spline()` | Diagnostic plot of the C(M) spline fit per profile |
+| `esm_uncert_depth()` | Uncertainty of cumulative fixed-depth stocks with depth, from replicate cores |
 | `run_esmc_app()` | Launch the interactive Shiny simulator |
 
 ## Basic usage
@@ -63,24 +64,26 @@ esm_plot_spline(result, profile_by = c("site", "year", "trt", "rep"))
 | `soc` | SOC concentration (or any soil property) |
 | + grouping columns | e.g. `site`, `year`, `rep` |
 
+Each profile must be a contiguous sequence of layers starting at 0 cm. Overlapping layers give an error; profiles that do not start at 0 cm are dropped, and profiles with a gap (e.g. a layer removed because of a missing value) are truncated at the first gap, with a warning.
+
 ### Key arguments
 
 **`output`**: what to return.
-- `"layers"` — ESM stock per depth layer (default, most common)
+- `"both"` — layers and cumulative (default)
+- `"layers"` — ESM stock per depth layer
 - `"cumulative"` — cumulative ESM stock at a single reference mass
-- `"both"` — both of the above
 
 **`reference_mode`**: how to define the reference mineral soil mass.
-- `"min"` — minimum observed mass across profiles (recommended; avoids extrapolation)
-- `"ref_trt"` — mean mass of a reference treatment
-- `"custom"` — user-supplied value
+- `"min"` — minimum observed mass at each boundary across profiles (recommended; avoids extrapolation when all profiles share the same depth increments)
+- `"ref_trt"` — mean mass of a reference treatment (profiles lighter than that mean are extrapolated)
+- `"custom"` — user-supplied masses: a named vector or data.frame with one target per depth boundary (e.g. `c("30" = 380, "50" = 640, "100" = 1290)`), or a single value for the cumulative stock only
 
 **`interp`**: interpolation method for the C(M) curve.
-- `"hyman"` — cubic spline with Hyman monotonicity filter (default; requires ≥ 2 depth intervals)
+- `"hyman"` — cubic spline with Hyman monotonicity filter, with the slope of the last interval at the deepest node and for extrapolation (default; requires ≥ 2 depth intervals)
 - `"spline"` — natural cubic spline (default up to v0.3.2)
 - `"monotone"` — monotone cubic Hermite spline (Fritsch-Carlson)
 - `"linear"` — recommended when only 1 depth interval is available
-- `"step"` — constant within interval
+- `"step"` — constant within interval (kept to reproduce old results; it treats mass beyond the last node as carbon-free, which is equivalent to fixed depth)
 
 ### Interactive simulator
 

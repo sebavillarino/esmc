@@ -49,7 +49,11 @@
     `som_factor` and SOM flag columns are no longer returned;
   * cores are checked as in `esm_compare()`, and cores of a stratum must share
     the same depth increments.
+* `esm_compare()`: `$cumulative` and `$diagnostics` no longer include the
+  internal `.__stratum__` column, and their row names are reset.
 * `esm_plot_spline()`: corrected an outdated argument name in the example.
+* Vignette and README updated: per-boundary `custom_mass`, profile geometry
+  checks, the Hyman end slope, and `esm_uncert_depth()`.
 * Shiny app: Hyman interpolation by default (all methods selectable); the
   simulated BD change now declines exponentially with depth (e-folding depth
   29 cm, calibrated with GSOCS-LULCC) and can be negative; the lower bound on
