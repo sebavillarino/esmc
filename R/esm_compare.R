@@ -7,8 +7,9 @@
 # Changes from v0.3.2:
 #   - Default interpolation is now interp = "hyman" (cubic spline with Hyman
 #     monotonicity filter), selected after a simulation benchmark
-#   - interp = "hyman" extrapolates linearly with the end slope of the spline
-#     (stats::spline(method = "hyman") extrapolates with a cubic polynomial)
+#   - interp = "hyman" uses the secant of the last interval as the slope at
+#     the deepest node and extrapolates linearly with it
+#   - Profiles are checked for contiguous layers from 0 cm (.esm_check_profiles)
 #
 # Changes from v0.3.1:
 #   - New interpolation options: interp = "monotone" (Fritsch-Carlson monotone
@@ -75,23 +76,39 @@
 #'   treatment, \code{"custom"} uses a user-supplied value.
 #' @param reference_by Character vector or NULL. Columns defining strata
 #'   within which the reference mass is computed independently (e.g.
-#'   \code{c("site", "year")}). If NULL, a single global reference mass is
-#'   used across all profiles.
+#'   \code{c("site", "year")}). Must be a subset of \code{profile_by}. If
+#'   NULL, a single global reference mass is used across all profiles.
 #' @param ref_trt Value in column \code{trt} to use as the reference treatment.
 #'   Required when \code{reference_mode = "ref_trt"}.
-#' @param custom_mass Numeric. Reference mineral soil mass in kg/m2. Required
-#'   when \code{reference_mode = "custom"}.
+#' @param custom_mass Reference mineral soil mass(es) in kg/m2, required when
+#'   \code{reference_mode = "custom"}. One of:
+#'   \itemize{
+#'     \item a single number: the cumulative reference mass. Defines no
+#'       layers, so \code{output = "layers"} gives an error and
+#'       \code{output = "both"} returns only the cumulative stock (with a
+#'       warning).
+#'     \item a named numeric vector, names = lower boundaries in cm (e.g.
+#'       \code{c("30" = 380, "50" = 640, "100" = 1290)}): one target mass per
+#'       boundary, the same for every stratum.
+#'     \item a data.frame with columns \code{lower} and
+#'       \code{target_mass_kg_m2}, plus the \code{reference_by} columns for
+#'       targets that differ among strata.
+#'   }
+#'   With per-boundary targets, layers are defined by the supplied boundaries
+#'   (0 to the first boundary, then between consecutive boundaries) and the
+#'   cumulative stock is evaluated at the deepest supplied boundary.
 #' @param interp Character. Interpolation method for the cumulative curve
 #'   C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
 #'   at least 2 depth intervals (3 points including the (0, 0) anchor):
 #'   \itemize{
 #'     \item \code{"hyman"} (default): cubic spline with Hyman monotonicity
 #'       filter (\code{stats::splinefun(method = "hyman")}), as in von Haden et
-#'       al. (2020). Never decreasing, so layer stocks cannot be negative.
-#'       Unlike \code{stats::spline}, which extrapolates with the cubic of the
-#'       end interval, esmc extrapolates linearly with the end slope of the
-#'       spline. Performed best across fine and coarse sampling designs in the
-#'       simulation benchmark of the esmc reference paper.
+#'       al. (2020), except that the slope at the deepest node is the secant
+#'       of the last interval (the concentration per unit mineral mass of the
+#'       deepest sampled layer). Never decreasing, so layer stocks cannot be
+#'       negative. Extrapolates linearly with that slope. With the end
+#'       condition of \code{stats::splinefun} the last interval and the
+#'       extrapolation were unstable with few depth intervals.
 #'     \item \code{"spline"}: natural cubic spline (\code{method = "natural"}).
 #'       Default up to v0.3.2. Extrapolates linearly.
 #'     \item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;
@@ -225,8 +242,50 @@ esm_compare <- function(
   if (reference_mode == "ref_trt" && is.null(ref_trt))
     stop("reference_mode = 'ref_trt' requires ref_trt.")
 
-  if (reference_mode == "custom" && (is.null(custom_mass) || !is.finite(custom_mass)))
-    stop("reference_mode = 'custom' requires custom_mass (kg/m2).")
+  if (!is.null(reference_by)) {
+    rb_out <- setdiff(reference_by, profile_by)
+    if (length(rb_out) > 0)
+      stop("reference_by must be a subset of profile_by (every profile must ",
+           "belong to a single stratum). Not in profile_by: ",
+           paste(rb_out, collapse = ", "), call. = FALSE)
+  }
+
+  custom_tbl <- NULL
+  if (reference_mode == "custom") {
+    custom_tbl <- .esm_custom_as_df(custom_mass, reference_by)
+    if (is.null(custom_tbl)) {
+      # single value: one cumulative reference mass, no per-boundary targets
+      if (output == "layers")
+        stop("A single custom_mass defines one cumulative reference mass; ",
+             "layer stocks need one target mass per depth boundary. Supply ",
+             "a named vector or a data.frame (see ?esm_compare), or use ",
+             "output = 'cumulative'.", call. = FALSE)
+      if (output == "both") {
+        warning("A single custom_mass defines only the cumulative reference ",
+                "mass: layer stocks are not computed (output = 'cumulative').",
+                call. = FALSE)
+        output <- "cumulative"
+      }
+    }
+  }
+
+  if (reference_mode == "ref_trt") {
+    if (!ref_trt %in% data$trt)
+      stop("ref_trt = '", ref_trt, "' not found in column 'trt'.", call. = FALSE)
+    pid   <- interaction(data[profile_by], drop = TRUE, sep = " | ")
+    n_trt <- tapply(as.character(data$trt), pid, function(x) length(unique(x)))
+    if (any(n_trt > 1))
+      stop("Column 'trt' varies within profile(s): ",
+           paste(names(n_trt)[n_trt > 1], collapse = "; "),
+           ". profile_by must identify single profiles.", call. = FALSE)
+    if (!is.null(reference_by)) {
+      skey    <- interaction(data[reference_by], drop = TRUE, sep = " | ")
+      has_ref <- tapply(data$trt == ref_trt, skey, any)
+      if (any(!has_ref))
+        stop("ref_trt = '", ref_trt, "' is missing in stratum/strata: ",
+             paste(names(has_ref)[!has_ref], collapse = "; "), call. = FALSE)
+    }
+  }
 
   if (!is.null(som_col) && !som_col %in% names(data))
     stop("som_col not found in data: ", som_col)
@@ -251,6 +310,9 @@ esm_compare <- function(
   ]
   if (nrow(df) == 0)
     stop("No valid rows after removing NAs in upper / lower / bd / soil_prop.")
+
+  # ---- Check profile geometry (contiguous layers from 0, no overlaps) --------
+  df <- .esm_check_profiles(df, profile_by)
 
   # ---- Interval computations (full, for internal use) ------------------------
   soc_unit_eff <- if (isTRUE(som_from_soc))
@@ -287,7 +349,9 @@ esm_compare <- function(
 
   # --- Layers branch ----------------------------------------------------------
   if (do_layers) {
-    layers_tbl  <- .esm_layers_from_data(interval_full, reference_by)
+    layers_tbl  <- if (is.null(custom_tbl))
+      .esm_layers_from_data(interval_full, reference_by) else
+      .esm_layers_from_custom(custom_tbl, interval_full, reference_by)
 
     targets_tbl <- .esm_targets_by_boundary(
       interval_tbl   = interval_full,
@@ -545,7 +609,8 @@ esm_compare <- function(
 .esm_define_reference_mass <- function(
     interval_tbl, reference_mode, reference_by, ref_trt, custom_mass, profile_by
 ) {
-  by_cols  <- unique(c(profile_by, reference_by))
+  by_cols  <- unique(c(profile_by, reference_by,
+                       if (reference_mode == "ref_trt") "trt"))
   prof_max <- stats::aggregate(
     interval_tbl$cum_mineral_mass_kg_m2,
     by  = interval_tbl[by_cols],
@@ -561,9 +626,24 @@ esm_compare <- function(
   }
 
   if (reference_mode == "custom") {
-    ref_tbl               <- unique(prof_max[strata_cols])
-    ref_tbl$mass_ref_kg_m2 <- custom_mass
-    return(ref_tbl)
+    ct <- .esm_custom_as_df(custom_mass, reference_by)
+    if (is.null(ct)) {
+      ref_tbl                <- unique(prof_max[strata_cols])
+      ref_tbl$mass_ref_kg_m2 <- custom_mass
+      return(ref_tbl)
+    }
+    # per-boundary targets: cumulative reference = deepest supplied boundary
+    if (is.null(reference_by)) {
+      deep <- ct[which.max(ct$lower), , drop = FALSE]
+      return(data.frame(.__stratum__ = "ALL",
+                        mass_ref_kg_m2 = deep$target_mass_kg_m2))
+    }
+    key  <- interaction(ct[reference_by], drop = TRUE)
+    deep <- do.call(rbind, lapply(split(ct, key), function(g)
+      g[which.max(g$lower), c(reference_by, "target_mass_kg_m2"), drop = FALSE]))
+    names(deep)[names(deep) == "target_mass_kg_m2"] <- "mass_ref_kg_m2"
+    rownames(deep) <- NULL
+    return(deep)
   }
 
   if (reference_mode == "min") {
@@ -734,18 +814,20 @@ esm_compare <- function(
   f <- stats::splinefun(x, y, method = method)
   if (interp != "hyman") return(f)
 
-  # Hyman: linear extrapolation outside the observed range
-  x1 <- x[1]; xn <- x[length(x)]
-  y1 <- f(x1); yn <- f(xn)
-  s1 <- f(x1, deriv = 1); sn <- f(xn, deriv = 1)
-  function(xout) {
-    out <- f(xout)
-    hi  <- xout > xn
-    lo  <- xout < x1
-    out[hi] <- yn + sn * (xout[hi] - xn)
-    out[lo] <- y1 + s1 * (xout[lo] - x1)
-    out
-  }
+  # Hyman: node slopes from the Hyman-filtered spline, except at the last node,
+  # where the slope is the secant of the last interval (the C/mass ratio of the
+  # deepest sampled layer). The "fmm" end condition of stats::splinefun is
+  # unreliable with few nodes and biased both the last interval and the linear
+  # extrapolation. The neighbouring node is re-filtered so the Hermite cubic
+  # stays monotone. Outside the observed range, splinefunH extrapolates
+  # linearly with the end slopes.
+  n   <- length(x)
+  m   <- f(x, deriv = 1)
+  sec <- diff(y) / diff(x)
+  m[n] <- sec[n - 1]
+  if (n >= 3)
+    m[n - 1] <- max(0, min(m[n - 1], 3 * min(sec[n - 2], sec[n - 1])))
+  stats::splinefunH(x, y, m)
 }
 
 # Row matching helper
@@ -795,44 +877,19 @@ esm_compare <- function(
   bnds <- sort(unique(interval_tbl$lower))
 
   if (reference_mode == "custom") {
-    # Case 1: single scalar -> same target mass for all boundaries
-    if (is.numeric(custom_mass) && length(custom_mass) == 1 && is.null(names(custom_mass))) {
-      out <- data.frame(lower = bnds, target_mass_kg_m2 = custom_mass,
-                        stringsAsFactors = FALSE)
-      return(out[order(out$lower), , drop = FALSE])
+    ct <- .esm_custom_as_df(custom_mass, reference_by)
+    if (is.null(ct))
+      stop("Layer targets need custom_mass with one value per boundary.")
+    if (!is.null(reference_by) && !all(reference_by %in% names(ct))) {
+      # same targets for every stratum
+      strata <- unique(interval_tbl[, reference_by, drop = FALSE])
+      ct <- merge(strata, ct, by = NULL)
     }
-    # Case 2: named vector -> names are lower boundaries, values are target masses
-    if (is.numeric(custom_mass) && !is.null(names(custom_mass))) {
-      out <- data.frame(lower = as.numeric(names(custom_mass)),
-                        target_mass_kg_m2 = as.numeric(custom_mass),
-                        stringsAsFactors = FALSE)
-      return(out[order(out$lower), , drop = FALSE])
-    }
-    # Case 3: data.frame with columns lower + target_mass_kg_m2
-    if (is.data.frame(custom_mass)) {
-      needed <- c("lower", "target_mass_kg_m2")
-      miss   <- setdiff(needed, names(custom_mass))
-      if (length(miss) > 0)
-        stop("custom_mass data.frame is missing columns: ",
-             paste(miss, collapse = ", "))
-      if (!is.null(reference_by)) {
-        miss2 <- setdiff(reference_by, names(custom_mass))
-        if (length(miss2) > 0)
-          stop("custom_mass data.frame is missing reference_by columns: ",
-               paste(miss2, collapse = ", "))
-      }
-      out       <- custom_mass
-      out$lower <- as.numeric(out$lower)
-      out$target_mass_kg_m2 <- as.numeric(out$target_mass_kg_m2)
-      return(out[do.call(order, out[, c(reference_by, "lower"),
-                                    drop = FALSE]), , drop = FALSE])
-    }
-    stop(
-      "custom_mass must be one of:\n",
-      "  - a single numeric value (same target mass for all layers)\n",
-      "  - a named numeric vector (names = lower boundaries, values = target masses)\n",
-      "  - a data.frame with columns 'lower' and 'target_mass_kg_m2'"
-    )
+    ct <- ct[, c(reference_by, "lower", "target_mass_kg_m2"), drop = FALSE]
+    ct <- ct[do.call(order, ct[, c(reference_by, "lower"), drop = FALSE]), ,
+             drop = FALSE]
+    rownames(ct) <- NULL
+    return(ct)
   }
 
   build_global <- function(fun_bnd) {
@@ -990,4 +1047,126 @@ esm_compare <- function(
             "increments differ among profiles; consider a finer reference_by.",
             call. = FALSE)
   invisible(NULL)
+}
+
+
+# Check that every profile is a contiguous sequence of layers starting at 0.
+# The cumulative mass coordinate is only valid under that condition: a gap
+# (e.g. a layer dropped because of a missing value) shifts every deeper node
+# and, through reference_mode = "min", the targets of the whole stratum.
+#   - overlapping or duplicated layers -> error
+#   - profile not starting at 0        -> profile dropped, warning
+#   - gap                              -> profile truncated at the gap, warning
+.esm_check_profiles <- function(df, profile_by) {
+  gid    <- interaction(df[profile_by], drop = TRUE, sep = " | ")
+  groups <- split(df, gid)
+  bad_overlap <- character(0); not_zero <- character(0); gapped <- character(0)
+  out <- lapply(names(groups), function(nm) {
+    g <- groups[[nm]]
+    g <- g[order(g$upper, g$lower), , drop = FALSE]
+    if (any(g$lower <= g$upper)) {
+      bad_overlap <<- c(bad_overlap, nm); return(g)
+    }
+    if (nrow(g) > 1 && any(g$upper[-1] < g$lower[-nrow(g)])) {
+      bad_overlap <<- c(bad_overlap, nm); return(g)
+    }
+    if (g$upper[1] != 0) { not_zero <<- c(not_zero, nm); return(NULL) }
+    if (nrow(g) > 1) {
+      gap <- which(g$upper[-1] > g$lower[-nrow(g)])
+      if (length(gap) > 0) {
+        gapped <<- c(gapped, nm)
+        g <- g[seq_len(gap[1]), , drop = FALSE]
+      }
+    }
+    g
+  })
+  if (length(bad_overlap) > 0)
+    stop("Overlapping, duplicated or non-positive-thickness layers in profile(s): ",
+         paste(bad_overlap, collapse = "; "),
+         ". Check that profile_by uniquely identifies each profile.", call. = FALSE)
+  if (length(not_zero) > 0)
+    warning(length(not_zero), " profile(s) do not start at 0 cm (after removing ",
+            "rows with missing values) and were dropped: ",
+            paste(not_zero, collapse = "; "), call. = FALSE)
+  if (length(gapped) > 0)
+    warning(length(gapped), " profile(s) have a gap between layers (possibly ",
+            "rows removed because of missing values) and were truncated at the ",
+            "first gap: ", paste(gapped, collapse = "; "), call. = FALSE)
+  out <- do.call(rbind, out)
+  if (is.null(out) || nrow(out) == 0)
+    stop("No valid profiles left after checking layer geometry.", call. = FALSE)
+  rownames(out) <- NULL
+  out
+}
+
+
+# Parse custom_mass. Returns NULL for a single value (cumulative reference
+# only) or a data.frame with columns lower, target_mass_kg_m2 and, optionally,
+# the reference_by columns.
+.esm_custom_as_df <- function(custom_mass, reference_by) {
+  err <- function(...) stop(..., call. = FALSE)
+  if (is.null(custom_mass))
+    err("reference_mode = 'custom' requires custom_mass (kg/m2).")
+  if (is.data.frame(custom_mass)) {
+    miss <- setdiff(c("lower", "target_mass_kg_m2"), names(custom_mass))
+    if (length(miss) > 0)
+      err("custom_mass data.frame is missing columns: ", paste(miss, collapse = ", "))
+    extra_rb <- intersect(reference_by, names(custom_mass))
+    if (length(extra_rb) > 0 && !setequal(extra_rb, reference_by))
+      err("custom_mass data.frame must contain all reference_by columns or none.")
+    if (length(extra_rb) == 0 &&
+        any(!names(custom_mass) %in% c("lower", "target_mass_kg_m2")) &&
+        is.null(reference_by))
+      err("custom_mass data.frame has stratum columns but reference_by is NULL.")
+    out <- custom_mass
+    out$lower             <- as.numeric(out$lower)
+    out$target_mass_kg_m2 <- as.numeric(out$target_mass_kg_m2)
+  } else if (is.numeric(custom_mass) && length(custom_mass) == 1 &&
+             is.null(names(custom_mass))) {
+    if (!is.finite(custom_mass) || custom_mass <= 0)
+      err("custom_mass must be a positive, finite number (kg/m2).")
+    return(NULL)
+  } else if (is.numeric(custom_mass) && !is.null(names(custom_mass))) {
+    out <- data.frame(lower = suppressWarnings(as.numeric(names(custom_mass))),
+                      target_mass_kg_m2 = as.numeric(custom_mass))
+    if (anyNA(out$lower))
+      err("Names of custom_mass must be lower boundaries in cm (e.g. c('30' = 380)).")
+  } else {
+    err("custom_mass must be one of:\n",
+        "  - a single number (cumulative reference mass only)\n",
+        "  - a named numeric vector (names = lower boundaries in cm)\n",
+        "  - a data.frame with columns 'lower' and 'target_mass_kg_m2' ",
+        "(plus reference_by columns, optionally)")
+  }
+  if (any(!is.finite(out$lower)) || any(!is.finite(out$target_mass_kg_m2)) ||
+      any(out$lower <= 0) || any(out$target_mass_kg_m2 <= 0))
+    err("custom_mass boundaries and target masses must be positive and finite.")
+  key <- if (all(reference_by %in% names(out)) && !is.null(reference_by))
+    interaction(out[reference_by], drop = TRUE) else rep("ALL", nrow(out))
+  if (any(vapply(split(out$lower, key), anyDuplicated, integer(1)) > 0))
+    err("custom_mass has duplicated lower boundaries.")
+  out
+}
+
+# Layers defined by the boundaries supplied in custom_mass (0 to first
+# boundary, then between consecutive boundaries), per stratum when needed
+.esm_layers_from_custom <- function(ct, interval_tbl, reference_by) {
+  part <- function(b) { b <- sort(unique(c(0, b)))
+    data.frame(upper = utils::head(b, -1), lower = utils::tail(b, -1)) }
+  if (is.null(reference_by)) return(part(ct$lower))
+  strata <- unique(interval_tbl[, reference_by, drop = FALSE])
+  out <- do.call(rbind, lapply(seq_len(nrow(strata)), function(i) {
+    st <- strata[i, , drop = FALSE]
+    b  <- if (all(reference_by %in% names(ct))) {
+      sel <- rep(TRUE, nrow(ct))
+      for (cc in reference_by) sel <- sel & ct[[cc]] == st[[cc]]
+      ct$lower[sel]
+    } else ct$lower
+    if (length(b) == 0)
+      stop("custom_mass has no targets for stratum: ",
+           paste(unlist(st), collapse = " | "), call. = FALSE)
+    cbind(st[rep(1, length(unique(b))), , drop = FALSE], part(b))
+  }))
+  rownames(out) <- NULL
+  out
 }

@@ -79,17 +79,19 @@ test_that("all interpolation methods reproduce the observed nodes", {
   }
 })
 
-test_that("interp = 'hyman' matches stats::spline(method = 'hyman')", {
+test_that("interp = 'hyman' matches stats::spline(method = 'hyman') except in the last interval", {
   d  <- one_profile_data()
   r  <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
                     output = "layers", reference_mode = "min", interp = "hyman")
   pm <- r$profile_mass[r$profile_mass$trt == "b", ]
   tg <- r$targets
+  # targets inside all intervals but the last one
+  inner <- tg$target_mass_kg_m2 < sort(pm$cum_mineral_mass_kg_m2, decreasing = TRUE)[2]
   ref <- stats::spline(pm$cum_mineral_mass_kg_m2, pm$cum_stock_kg_m2,
-                       xout = tg$target_mass_kg_m2, method = "hyman")$y
-  got <- r$layer$cum_lower_kg_m2[r$layer$trt == "b"]
-  expect_equal(got, ref[match(r$layer$lower[r$layer$trt == "b"], tg$lower)],
-               tolerance = 1e-10)
+                       xout = tg$target_mass_kg_m2[inner], method = "hyman")$y
+  got <- r$layer$cum_lower_kg_m2[r$layer$trt == "b"][match(tg$lower[inner],
+                                   r$layer$lower[r$layer$trt == "b"])]
+  expect_equal(got, ref, tolerance = 1e-10)
 })
 
 test_that("interp = 'monotone' gives non-negative layer stocks", {
@@ -120,16 +122,132 @@ test_that("the default interpolation is 'hyman'", {
   expect_identical(eval(formals(esm_compare)$interp)[1], "hyman")
 })
 
-test_that("interp = 'hyman' extrapolates linearly with the end slope", {
+test_that("interp = 'hyman' extrapolates with the last-layer concentration", {
   d <- one_profile_data()[1:4, ]
   r <- suppressWarnings(
     esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
                 output = "cumulative", reference_mode = "custom",
                 custom_mass = 2000, interp = "hyman", som_from_soc = FALSE))
-  pm <- r$profile_mass
-  f  <- stats::splinefun(pm$cum_mineral_mass_kg_m2, pm$cum_stock_kg_m2,
-                         method = "hyman")
-  xn <- max(pm$cum_mineral_mass_kg_m2)
-  expected <- f(xn) + f(xn, deriv = 1) * (2000 - xn)
+  iv   <- r$interval
+  last <- iv[which.max(iv$lower), ]
+  conc <- last$stock_kg_m2 / last$mineral_mass_kg_m2
+  expected <- last$cum_stock_kg_m2 + conc * (2000 - last$cum_mineral_mass_kg_m2)
   expect_equal(r$cumulative$cum_stock_kg_m2, expected, tolerance = 1e-10)
+})
+
+test_that("interp = 'hyman' gives non-negative layer stocks", {
+  d <- one_profile_data()
+  r <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                   output = "layers", reference_mode = "min", interp = "hyman")
+  expect_true(all(r$layer$layer_stock_kg_m2 >= 0))
+})
+
+# --- Profile geometry (v0.4.0) ------------------------------------------------
+test_that("a gap from a missing value truncates the profile with a warning", {
+  d <- one_profile_data()
+  d$soc[d$trt == "b" & d$upper == 10] <- NA
+  expect_warning(
+    r <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                     output = "cumulative", reference_mode = "min",
+                     interp = "linear"),
+    "gap")
+  expect_equal(max(r$interval$lower[r$interval$trt == "b"]), 10)
+})
+
+test_that("profiles not starting at 0 are dropped with a warning", {
+  d <- one_profile_data()
+  d <- d[!(d$trt == "b" & d$upper == 0), ]
+  expect_warning(
+    r <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                     output = "cumulative", reference_mode = "min",
+                     interp = "linear"),
+    "do not start at 0")
+  expect_false("b" %in% r$cumulative$trt)
+})
+
+test_that("overlapping layers give an error", {
+  d <- rbind(one_profile_data(),
+             data.frame(trt = "b", rep = 1, upper = 0, lower = 30, bd = 1.2, soc = 2))
+  expect_error(esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                           interp = "linear"), "Overlapping")
+})
+
+# --- custom_mass, reference_by and ref_trt validation (v0.4.0) ---------------
+test_that("custom_mass as a named vector defines layers and the cumulative", {
+  d  <- one_profile_data()
+  cm <- c("30" = 300, "60" = 650)
+  r  <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                    reference_mode = "custom", custom_mass = cm,
+                    interp = "linear")
+  expect_setequal(unique(r$layer$lower), c(30, 60))
+  expect_equal(unique(r$layer$target_mass_lower_kg_m2[r$layer$lower == 60]), 650)
+  expect_equal(unique(r$cumulative$target_mass_kg_m2), 650)
+  for (t in c("a", "b"))
+    expect_equal(sum(r$layer$layer_stock_kg_m2[r$layer$trt == t]),
+                 r$cumulative$cum_stock_kg_m2[r$cumulative$trt == t])
+})
+
+test_that("custom_mass as a data.frame by stratum", {
+  d <- rbind(cbind(site = "s1", one_profile_data()),
+             cbind(site = "s2", one_profile_data()))
+  cm <- data.frame(site = c("s1", "s1", "s2", "s2"), lower = c(30, 60, 30, 60),
+                   target_mass_kg_m2 = c(300, 650, 280, 600))
+  r <- esm_compare(d, soil_prop = "soc", profile_by = c("site", "trt", "rep"),
+                   reference_by = "site", reference_mode = "custom",
+                   custom_mass = cm, interp = "linear")
+  expect_equal(sort(unique(r$cumulative$target_mass_kg_m2)), c(600, 650))
+  expect_equal(nrow(r$layer), 2 * 2 * 2)
+})
+
+test_that("a single custom_mass gives only the cumulative stock", {
+  d <- one_profile_data()
+  expect_error(esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                           output = "layers", reference_mode = "custom",
+                           custom_mass = 500), "one target mass per")
+  expect_warning(r <- esm_compare(d, soil_prop = "soc",
+                                  profile_by = c("trt", "rep"),
+                                  reference_mode = "custom", custom_mass = 500,
+                                  interp = "linear"),
+                 "layer stocks are not computed")
+  expect_null(r$layer)
+  expect_equal(unique(r$cumulative$target_mass_kg_m2), 500)
+})
+
+test_that("invalid custom_mass gives informative errors", {
+  d <- one_profile_data()
+  f <- function(cm) esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                                reference_mode = "custom", custom_mass = cm,
+                                output = "cumulative", interp = "linear")
+  expect_error(f(c(300, 650)), "custom_mass must be one of")
+  expect_error(f(c(a = 300)), "lower boundaries")
+  expect_error(f(-5), "positive")
+  expect_error(f(data.frame(lower = 30)), "missing columns")
+})
+
+test_that("reference_by must be a subset of profile_by", {
+  d <- cbind(site = "s1", one_profile_data())
+  d$core <- paste(d$trt, d$rep)
+  expect_error(esm_compare(d, soil_prop = "soc", profile_by = "core",
+                           reference_by = "site", interp = "linear"),
+               "subset of profile_by")
+})
+
+test_that("ref_trt works when trt is not in profile_by", {
+  d <- one_profile_data(); d$core <- paste(d$trt, d$rep)
+  r1 <- esm_compare(d, soil_prop = "soc", profile_by = "core",
+                    reference_mode = "ref_trt", ref_trt = "a", interp = "linear")
+  r2 <- esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                    reference_mode = "ref_trt", ref_trt = "a", interp = "linear")
+  expect_equal(r1$cumulative$cum_stock_kg_m2, r2$cumulative$cum_stock_kg_m2)
+})
+
+test_that("ref_trt validation", {
+  d <- rbind(cbind(site = "s1", one_profile_data()),
+             cbind(site = "s2", one_profile_data()[5:8, ]))
+  expect_error(esm_compare(d, soil_prop = "soc", profile_by = c("site", "trt", "rep"),
+                           reference_by = "site", reference_mode = "ref_trt",
+                           ref_trt = "a", interp = "linear"), "missing in stratum")
+  expect_error(esm_compare(d, soil_prop = "soc", profile_by = c("site", "trt", "rep"),
+                           reference_mode = "ref_trt", ref_trt = "zz",
+                           interp = "linear"), "not found")
 })

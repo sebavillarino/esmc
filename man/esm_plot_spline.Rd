@@ -80,7 +80,7 @@ unreliable at deep cumulative depths (e.g. 0–100 cm).
 \examples{
 \dontrun{
 result <- esm_compare(
-  data = my_data, rvar = "soc",
+  data = my_data, soil_prop = "soc",
   profile_by = c("site", "yr", "trt", "rep"),
   output = "both",
   reference_mode = "min", interp = "hyman"

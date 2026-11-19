@@ -49,14 +49,29 @@ treatment, \code{"custom"} uses a user-supplied value.}
 
 \item{reference_by}{Character vector or NULL. Columns defining strata
 within which the reference mass is computed independently (e.g.
-\code{c("site", "year")}). If NULL, a single global reference mass is
-used across all profiles.}
+\code{c("site", "year")}). Must be a subset of \code{profile_by}. If
+NULL, a single global reference mass is used across all profiles.}
 
 \item{ref_trt}{Value in column \code{trt} to use as the reference treatment.
 Required when \code{reference_mode = "ref_trt"}.}
 
-\item{custom_mass}{Numeric. Reference mineral soil mass in kg/m2. Required
-when \code{reference_mode = "custom"}.}
+\item{custom_mass}{Reference mineral soil mass(es) in kg/m2, required when
+\code{reference_mode = "custom"}. One of:
+\itemize{
+\item a single number: the cumulative reference mass. Defines no
+layers, so \code{output = "layers"} gives an error and
+\code{output = "both"} returns only the cumulative stock (with a
+warning).
+\item a named numeric vector, names = lower boundaries in cm (e.g.
+\code{c("30" = 380, "50" = 640, "100" = 1290)}): one target mass per
+boundary, the same for every stratum.
+\item a data.frame with columns \code{lower} and
+\code{target_mass_kg_m2}, plus the \code{reference_by} columns for
+targets that differ among strata.
+}
+With per-boundary targets, layers are defined by the supplied boundaries
+(0 to the first boundary, then between consecutive boundaries) and the
+cumulative stock is evaluated at the deepest supplied boundary.}
 
 \item{interp}{Character. Interpolation method for the cumulative curve
 C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
@@ -64,11 +79,12 @@ at least 2 depth intervals (3 points including the (0, 0) anchor):
 \itemize{
 \item \code{"hyman"} (default): cubic spline with Hyman monotonicity
 filter (\code{stats::splinefun(method = "hyman")}), as in von Haden et
-al. (2020). Never decreasing, so layer stocks cannot be negative.
-Unlike \code{stats::spline}, which extrapolates with the cubic of the
-end interval, esmc extrapolates linearly with the end slope of the
-spline. Performed best across fine and coarse sampling designs in the
-simulation benchmark of the esmc reference paper.
+al. (2020), except that the slope at the deepest node is the secant
+of the last interval (the concentration per unit mineral mass of the
+deepest sampled layer). Never decreasing, so layer stocks cannot be
+negative. Extrapolates linearly with that slope. With the end
+condition of \code{stats::splinefun} the last interval and the
+extrapolation were unstable with few depth intervals.
 \item \code{"spline"}: natural cubic spline (\code{method = "natural"}).
 Default up to v0.3.2. Extrapolates linearly.
 \item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;

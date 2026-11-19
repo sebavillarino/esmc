@@ -2,7 +2,7 @@
 % Please edit documentation in R/esm_uncert_depth.R
 \name{esm_uncert_depth}
 \alias{esm_uncert_depth}
-\title{Uncertainty propagation with depth (FD) using replicates}
+\title{Uncertainty of cumulative fixed-depth stocks with depth}
 \usage{
 esm_uncert_depth(
   data,
@@ -10,13 +10,14 @@ esm_uncert_depth(
   core_by,
   rep = "rep",
   rvar_unit = c("pct", "g_kg"),
-  method = c("mc", "analytic"),
-  n_mc = 1000,
+  method = c("analytic", "mc"),
+  n_mc = NULL,
+  uncertainty = c("sd", "se"),
   k = 1.96,
   criterion = c("snr", "ci_overlap", "both"),
   snr_threshold = 1,
   overlap_threshold = 0,
-  seed = 1,
+  seed = NULL,
   min_reps = 2,
   som_col = NULL,
   som_unit = c("pct", "g_kg", "frac"),
@@ -28,77 +29,70 @@ esm_uncert_depth(
 )
 }
 \arguments{
-\item{data}{A data.frame containing soil layers and replicates. Must include:
-\code{upper}, \code{lower} (cm), \code{bd} (g/cm3), replicate column \code{rep}, concentration column
-\code{rvar}, and all columns listed in \code{core_by}. If SOM correction is used, must also
-include \code{som_col} (measured) or \code{soc_col} (for estimation).}
+\item{data}{A data.frame with soil layers and replicates. Must include
+\code{upper}, \code{lower} (cm), \code{bd} (g/cm3), the replicate column \code{rep}, the
+concentration column \code{rvar}, and all columns listed in \code{core_by}.}
 
-\item{rvar}{Character string. Name of the concentration column (e.g., SOC). Interpreted
-using \code{rvar_unit}.}
+\item{rvar}{Character. Name of the concentration column (e.g. SOC),
+interpreted using \code{rvar_unit}.}
 
-\item{core_by}{Character vector. Columns defining the reporting stratum (e.g.,
-\code{c("trt","site","time")}). A single stopping depth is estimated per unique stratum.}
+\item{core_by}{Character vector. Columns defining the reporting stratum
+(e.g. \code{c("trt", "site", "time")}). One stopping depth is estimated per
+stratum.}
 
-\item{rep}{Character string. Column name identifying replicate cores within each stratum.
-Default \code{"rep"}.}
+\item{rep}{Character. Column identifying replicate cores within a stratum.}
 
-\item{rvar_unit}{Character. Unit of \code{rvar}: \code{"pct"} for percent (0–100) or \code{"g_kg"} for g/kg.}
+\item{rvar_unit}{Character. Unit of \code{rvar}: \code{"pct"} or \code{"g_kg"}.}
 
-\item{method}{Character. Uncertainty propagation method: \code{"mc"} (Monte Carlo) or \code{"analytic"}.}
+\item{method}{Deprecated. Uncertainty is now always computed from the
+per-core cumulative stocks; \code{"mc"} gives the same result with a warning.}
 
-\item{n_mc}{Integer. Number of Monte Carlo draws per stratum (only used when \code{method="mc"}).}
+\item{n_mc, seed}{Deprecated and ignored (kept for compatibility).}
 
-\item{k}{Numeric. Confidence multiplier (e.g., 1.96 for ~95\% intervals).}
+\item{uncertainty}{Character. Measure used for the SNR and the intervals:
+\code{"sd"} (standard deviation among cores, default; describes the spread of
+single cores) or \code{"se"} (standard error of the mean, SD / sqrt(n); describes
+the precision of the stratum mean). Both are returned.}
 
-\item{criterion}{Character. Stopping-depth criterion: \code{"snr"}, \code{"ci_overlap"}, or \code{"both"}.}
+\item{k}{Numeric. Multiplier for the intervals (mean +/- k * uncertainty).}
 
-\item{snr_threshold}{Numeric. Stopping rule for SNR: stop at first layer where SNR < threshold.}
+\item{criterion}{Character. Stopping criterion: \code{"snr"}, \code{"ci_overlap"}, or
+\code{"both"} (the shallowest of the two).}
 
-\item{overlap_threshold}{Numeric. Stopping rule for CI overlap: stop at first layer where the
-overlap length exceeds this threshold. Use 0 to flag any overlap.}
+\item{snr_threshold}{Numeric. Stop at the first layer where SNR < threshold.}
 
-\item{seed}{Integer. Random seed for Monte Carlo draws.}
+\item{overlap_threshold}{Numeric. Stop at the first layer where the overlap
+length exceeds this threshold (0 flags any overlap).}
 
-\item{min_reps}{Integer. Minimum number of unique replicates required per depth interval.
-If fewer are available, the layer is flagged and its SD is set to 0 (uncertainty likely
-underestimated).}
+\item{min_reps}{Integer. Minimum number of cores per layer. Layers with
+fewer cores are flagged (\code{rep_ok = FALSE}) and are not used by the
+stopping rule; with fewer than 2 cores the uncertainty is NA.}
 
-\item{som_col}{Optional character string. Name of measured SOM column (mass basis).
-If provided, SOM is converted using \code{som_unit} and subtracted from total soil mass.}
+\item{som_col, som_unit, som_from_soc, soc_col, soc_unit, som_factor}{Deprecated and ignored: FD stocks use total soil mass, so SOM is not
+needed. Kept for compatibility.}
 
-\item{som_unit}{Character. Unit of \code{som_col}: \code{"pct"} (percent), \code{"g_kg"} (g/kg), or \code{"frac"} (0–1).}
-
-\item{som_from_soc}{Logical. If TRUE and \code{som_col} is NULL, estimate SOM from SOC using
-\code{SOM = SOC * som_factor}. If TRUE and \code{soc_col} is NULL, \code{soc_col} defaults to \code{rvar}.}
-
-\item{soc_col}{Optional character string. Name of SOC column used for SOM estimation when
-\code{som_from_soc=TRUE}. Defaults to \code{rvar} if NULL.}
-
-\item{soc_unit}{Character. Unit of \code{soc_col} when \code{soc_col} differs from \code{rvar}: \code{"pct"} or \code{"g_kg"}.}
-
-\item{som_factor}{Numeric > 0. Conversion factor used when estimating SOM from SOC
-(default 2).}
-
-\item{out_unit}{Character. Output unit for convenience columns: \code{"kg_m2"} (default) or \code{"Mg_ha"}.
-When \code{"Mg_ha"}, additional columns with suffix \verb{_Mg_ha} are returned (1 kg/m2 = 10 Mg/ha).}
+\item{out_unit}{Character. \code{"kg_m2"} (default) or \code{"Mg_ha"} (adds columns
+with suffix \verb{_Mg_ha}; 1 kg/m2 = 10 Mg/ha).}
 }
 \value{
-A list with:
-\itemize{
-\item \code{depth}: depth-wise diagnostics per stratum (means, SDs, SNR, CI overlap, replicate counts).
-\item \code{summary}: one row per stratum with suggested \code{stop_depth_cm} and flags.
-\item \code{meta}: settings used.
-}
+A list with \code{depth} (depth-wise diagnostics per stratum), \code{summary}
+(one row per stratum with the suggested \code{stop_depth_cm}) and \code{meta}.
 }
 \description{
-Estimates uncertainty propagation of cumulative stocks with depth using
-replicate cores within each stratum (defined by \code{core_by}). Returns depth-wise
-diagnostics and a suggested stopping depth based on signal-to-noise ratio (SNR),
-confidence-interval overlap, or both.
+Estimates how the uncertainty of cumulative fixed-depth (FD) stocks grows
+with depth, using replicate cores within each stratum (defined by
+\code{core_by}), and suggests a stopping depth based on a signal-to-noise ratio
+(SNR), confidence-interval overlap, or both.
 }
 \details{
-By default, this function uses fixed-depth (FD) intervals defined by \code{upper} and
-\code{lower}. Stocks are computed as concentration times total soil mass. The SOM
-options (\code{som_col}, \code{som_from_soc}) only affect the mineral mass column and
-the SOM flags; they do not change the stocks in fixed-depth mode.
+Stocks are computed as concentration times total soil mass (bulk density
+times thickness), as in \code{\link[=esm_compare]{esm_compare()}}. Uncertainty of the cumulative
+stock is computed from the cumulative stock of each core, so the positive
+covariance among layers of the same core is taken into account (summing
+layer variances as if layers were independent underestimates it).
+
+Cores must be contiguous sequences of layers starting at 0 cm, and all
+cores of a stratum must share the same depth increments (a core may end
+shallower than the others). Rows with missing values are removed first;
+a core with a gap is truncated at the gap (with a warning).
 }
