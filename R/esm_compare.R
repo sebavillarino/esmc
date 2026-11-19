@@ -2,7 +2,13 @@
 # esmc — Equivalent Soil Mass
 # Unified comparison function: esm_compare()
 #
-# Version: 0.3.2
+# Version: 0.4.0
+#
+# Changes from v0.3.2:
+#   - Default interpolation is now interp = "hyman" (cubic spline with Hyman
+#     monotonicity filter), selected after a simulation benchmark
+#   - interp = "hyman" extrapolates linearly with the end slope of the spline
+#     (stats::spline(method = "hyman") extrapolates with a cubic polynomial)
 #
 # Changes from v0.3.1:
 #   - New interpolation options: interp = "monotone" (Fritsch-Carlson monotone
@@ -79,18 +85,21 @@
 #'   C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
 #'   at least 2 depth intervals (3 points including the (0, 0) anchor):
 #'   \itemize{
-#'     \item \code{"spline"}: natural cubic spline (\code{stats::splinefun},
-#'       \code{method = "natural"}). Extrapolates linearly.
+#'     \item \code{"hyman"} (default): cubic spline with Hyman monotonicity
+#'       filter (\code{stats::splinefun(method = "hyman")}), as in von Haden et
+#'       al. (2020). Never decreasing, so layer stocks cannot be negative.
+#'       Unlike \code{stats::spline}, which extrapolates with the cubic of the
+#'       end interval, esmc extrapolates linearly with the end slope of the
+#'       spline. Performed best across fine and coarse sampling designs in the
+#'       simulation benchmark of the esmc reference paper.
+#'     \item \code{"spline"}: natural cubic spline (\code{method = "natural"}).
+#'       Default up to v0.3.2. Extrapolates linearly.
 #'     \item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;
-#'       \code{method = "monoH.FC"}). Locally defined and never decreasing, so
-#'       layer stocks cannot be negative. Extrapolates linearly with the slope
-#'       of the last segment, i.e. assumes that the concentration below the
-#'       deepest sample equals that of the deepest sampled layer.
-#'     \item \code{"hyman"}: cubic spline with Hyman monotonicity filter
-#'       (\code{method = "hyman"}), as used by von Haden et al. (2020).
-#'       Extrapolates with the cubic polynomial of the end interval.
+#'       \code{method = "monoH.FC"}). Performs well with many depth intervals.
+#'       Extrapolates linearly with the slope of the last segment, i.e. the
+#'       concentration of the deepest sampled layer.
 #'     \item \code{"linear"}: linear interpolation (recommended when only one
-#'       or two depth intervals are available). Extrapolates linearly.
+#'       depth interval is available). Extrapolates linearly.
 #'     \item \code{"step"}: constant within interval.
 #'   }
 #' @param soil_prop_unit Character. Unit of \code{soil_prop}: \code{"pct"}
@@ -150,7 +159,7 @@
 #'   profile_by     = c("site", "year", "trt", "rep"),
 #'   output         = "layers",
 #'   reference_mode = "min",
-#'   interp         = "spline",
+#'   interp         = "hyman",
 #'   soil_prop_unit = "pct",
 #'   som_from_soc   = TRUE
 #' )
@@ -165,7 +174,7 @@
 #'   reference_mode = "ref_trt",
 #'   ref_trt        = "control",
 #'   reference_by   = c("site", "year"),
-#'   interp         = "spline",
+#'   interp         = "hyman",
 #'   soil_prop_unit = "pct",
 #'   som_from_soc   = TRUE
 #' )
@@ -184,7 +193,7 @@ esm_compare <- function(
     reference_by   = NULL,
     ref_trt        = NULL,
     custom_mass    = NULL,
-    interp         = c("spline", "monotone", "hyman", "linear", "step"),
+    interp         = c("hyman", "spline", "monotone", "linear", "step"),
     soil_prop_unit = c("pct", "g_kg"),
 
     som_col        = NULL,
@@ -367,7 +376,7 @@ esm_compare <- function(
     profile_mass = profile_mass,
     meta = list(
       package        = "esmc",
-      version        = "0.3.2",
+      version        = "0.4.0",
       fn             = "esm_compare",
       principle      = "Depth is sampling; mineral soil mass is comparison.",
       output         = output,
@@ -698,7 +707,8 @@ esm_compare <- function(
 #   monotone : Fritsch-Carlson monotone cubic Hermite spline; linear
 #              extrapolation with the end slopes (last-segment secant)
 #   hyman    : cubic spline with Hyman monotonicity filter (von Haden et al.
-#              2020); cubic extrapolation, as in stats::spline(method = "hyman")
+#              2020) inside the observed range; linear extrapolation with the
+#              end slopes of the spline (stats::spline would use a cubic)
 #   linear   : piecewise linear, linear extrapolation with end-segment slopes
 #   step     : constant within interval
 .esm_interp_fun <- function(x, y, interp, label = NULL) {
@@ -721,7 +731,21 @@ esm_compare <- function(
                    monotone = "monoH.FC",
                    hyman    = "hyman",
                    stop("Unknown interp: ", interp))
-  stats::splinefun(x, y, method = method)
+  f <- stats::splinefun(x, y, method = method)
+  if (interp != "hyman") return(f)
+
+  # Hyman: linear extrapolation outside the observed range
+  x1 <- x[1]; xn <- x[length(x)]
+  y1 <- f(x1); yn <- f(xn)
+  s1 <- f(x1, deriv = 1); sn <- f(xn, deriv = 1)
+  function(xout) {
+    out <- f(xout)
+    hi  <- xout > xn
+    lo  <- xout < x1
+    out[hi] <- yn + sn * (xout[hi] - xn)
+    out[lo] <- y1 + s1 * (xout[lo] - x1)
+    out
+  }
 }
 
 # Row matching helper
@@ -860,7 +884,7 @@ esm_compare <- function(
 .esm_layer_stocks_from_targets <- function(
     profile_mass, layers_tbl, targets_tbl,
     profile_by, reference_by = NULL,
-    interp = c("spline", "monotone", "hyman", "linear", "step")
+    interp = c("hyman", "spline", "monotone", "linear", "step")
 ) {
   interp <- match.arg(interp)
 

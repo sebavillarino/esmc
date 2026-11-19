@@ -1,3 +1,20 @@
+# esmc 0.4.0
+
+* **New default interpolation:** `esm_compare()` and `esm_plot_spline()` now use
+  `interp = "hyman"` (cubic spline with Hyman monotonicity filter) by default.
+  The choice is based on a simulation benchmark of linear, natural spline,
+  Hyman and Fritsch-Carlson monotone interpolation across fine and coarse
+  sampling designs and contrasting SOC stratification: Hyman was the most
+  robust across designs. Results obtained with earlier versions can be
+  reproduced with `interp = "spline"`.
+* `interp = "hyman"` now extrapolates linearly with the end slope of the spline
+  outside the observed mass range (`stats::spline(method = "hyman")`, used by
+  von Haden et al. 2020, extrapolates with the cubic of the end interval).
+* Shiny app: Hyman interpolation by default (all methods selectable); the
+  simulated BD change now declines exponentially with depth (e-folding depth
+  29 cm, calibrated with GSOCS-LULCC) and can be negative; the lower bound on
+  observed BD was reduced from 0.6 to 0.05 g cm-3.
+
 # esmc 0.3.2
 
 * `esm_compare()`: two new interpolation methods for the cumulative curve C(M):

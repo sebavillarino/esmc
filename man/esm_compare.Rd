@@ -13,7 +13,7 @@ esm_compare(
   reference_by = NULL,
   ref_trt = NULL,
   custom_mass = NULL,
-  interp = c("spline", "monotone", "hyman", "linear", "step"),
+  interp = c("hyman", "spline", "monotone", "linear", "step"),
   soil_prop_unit = c("pct", "g_kg"),
   som_col = NULL,
   som_unit = c("pct", "g_kg", "frac"),
@@ -62,18 +62,21 @@ when \code{reference_mode = "custom"}.}
 C(M) (cumulative stock vs cumulative mineral mass). Spline methods require
 at least 2 depth intervals (3 points including the (0, 0) anchor):
 \itemize{
-\item \code{"spline"}: natural cubic spline (\code{stats::splinefun},
-\code{method = "natural"}). Extrapolates linearly.
+\item \code{"hyman"} (default): cubic spline with Hyman monotonicity
+filter (\code{stats::splinefun(method = "hyman")}), as in von Haden et
+al. (2020). Never decreasing, so layer stocks cannot be negative.
+Unlike \code{stats::spline}, which extrapolates with the cubic of the
+end interval, esmc extrapolates linearly with the end slope of the
+spline. Performed best across fine and coarse sampling designs in the
+simulation benchmark of the esmc reference paper.
+\item \code{"spline"}: natural cubic spline (\code{method = "natural"}).
+Default up to v0.3.2. Extrapolates linearly.
 \item \code{"monotone"}: monotone cubic Hermite spline (Fritsch-Carlson;
-\code{method = "monoH.FC"}). Locally defined and never decreasing, so
-layer stocks cannot be negative. Extrapolates linearly with the slope
-of the last segment, i.e. assumes that the concentration below the
-deepest sample equals that of the deepest sampled layer.
-\item \code{"hyman"}: cubic spline with Hyman monotonicity filter
-(\code{method = "hyman"}), as used by von Haden et al. (2020).
-Extrapolates with the cubic polynomial of the end interval.
+\code{method = "monoH.FC"}). Performs well with many depth intervals.
+Extrapolates linearly with the slope of the last segment, i.e. the
+concentration of the deepest sampled layer.
 \item \code{"linear"}: linear interpolation (recommended when only one
-or two depth intervals are available). Extrapolates linearly.
+depth interval is available). Extrapolates linearly.
 \item \code{"step"}: constant within interval.
 }}
 
@@ -166,7 +169,7 @@ result <- esm_compare(
   profile_by     = c("site", "year", "trt", "rep"),
   output         = "layers",
   reference_mode = "min",
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -181,7 +184,7 @@ result2 <- esm_compare(
   reference_mode = "ref_trt",
   ref_trt        = "control",
   reference_by   = c("site", "year"),
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )

@@ -7,7 +7,7 @@
 esm_plot_spline(
   esm_out,
   profile_by,
-  interp = c("spline", "monotone", "hyman", "linear"),
+  interp = c("hyman", "spline", "monotone", "linear"),
   n_grid = 200,
   x_lab = "Cumulative mineral soil mass (kg m⁻²)",
   y_lab = "Cumulative SOC stock (kg C m⁻²)",
@@ -32,8 +32,8 @@ requires the cumulative C(M) values stored in \code{$diagnostics}.}
 \item{profile_by}{Character vector. Same \code{profile_by} used in
 \code{esm_compare()} — identifies individual cores/profiles.}
 
-\item{interp}{Character. Interpolation method: \code{"spline"} (default),
-\code{"monotone"}, \code{"hyman"} or \code{"linear"}. Should match
+\item{interp}{Character. Interpolation method: \code{"hyman"} (default),
+\code{"spline"}, \code{"monotone"} or \code{"linear"}. Should match
 the method used in \code{esm_compare()}.}
 
 \item{n_grid}{Integer. Number of points used to draw each curve segment.
@@ -83,7 +83,7 @@ result <- esm_compare(
   data = my_data, rvar = "soc",
   profile_by = c("site", "yr", "trt", "rep"),
   output = "both",
-  reference_mode = "min", interp = "spline"
+  reference_mode = "min", interp = "hyman"
 )
 esm_plot_spline(result, profile_by = c("site", "yr", "trt", "rep"))
 }

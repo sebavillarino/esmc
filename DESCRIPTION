@@ -1,6 +1,6 @@
 Package: esmc
 Title: Equivalent Soil Mass Comparisons
-Version: 0.3.2
+Version: 0.4.0
 Authors@R:
     person(given = "Sebastian",
            family = "Villarino",

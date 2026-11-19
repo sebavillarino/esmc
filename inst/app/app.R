@@ -128,8 +128,8 @@ simulate_once <- function(
     bd_lab_sd  = 0.03,
     c_lab_cv   = 0.05,
     dz_mass    = 0.1,
-    z_effect_max = 50,
-    w_transition = 6
+    lambda_cm        = 29,   # e-folding depth of the BD change (cm)
+    change_ref_depth = 10    # BD change (%) = mean change over 0-change_ref_depth cm
 ) {
   if (!is.null(seed)) set.seed(seed)
   soc_prof         <- match.arg(soc_prof)
@@ -162,26 +162,27 @@ simulate_once <- function(
     c0 * ((m + m0) / m0)^s
   }
 
-  depth_multiplier_logistic <- function(z, bd_increase_pct, z_effect_max = 50, w = 6) {
-    if (bd_increase_pct <= 0) return(rep(1, length(z)))
-    inc <- bd_increase_pct / 100; z0 <- z_effect_max
-    g <- plogis((z0 - z) / w); g0 <- plogis(0); gS <- plogis(z0 / w)
-    f <- pmin(pmax((g - g0) / (gS - g0), 0), 1)
-    1 + inc * f
+  # BD change declining exponentially with depth (calibrated with GSOCS-LULCC,
+  # lambda = 29 cm); amplitude set so that the MEAN change over 0-ref_depth cm
+  # equals bd_increase_pct (negative values = BD decrease)
+  depth_multiplier_exp <- function(z, bd_increase_pct, lambda_cm = 29, ref_depth = 10) {
+    if (bd_increase_pct == 0) return(rep(1, length(z)))
+    mean_shape <- lambda_cm * (1 - exp(-ref_depth / lambda_cm)) / ref_depth
+    1 + (bd_increase_pct / 100) / mean_shape * exp(-z / lambda_cm)
   }
 
   make_bd_fun <- function(trt_name, core_mult, bd_increase_pct,
-                           z0_cm = 0.5, z_effect_max = 50, w_transition = 6) {
+                           z0_cm = 0.5, lambda_cm = 29, change_ref_depth = 10) {
     # force() evaluates arguments now; otherwise lazy evaluation inside the
     # for-loop below makes every core use the multiplier of the last core
     force(trt_name); force(core_mult); force(bd_increase_pct)
-    force(z0_cm); force(z_effect_max); force(w_transition)
+    force(z0_cm); force(lambda_cm); force(change_ref_depth)
     function(z) {
       bd0 <- bd_wiese(z, z0_cm = z0_cm) * core_mult
       if (trt_name == "t1")
-        bd0 <- bd0 * depth_multiplier_logistic(z, bd_increase_pct,
-                                                z_effect_max = z_effect_max,
-                                                w = w_transition)
+        bd0 <- bd0 * depth_multiplier_exp(z, bd_increase_pct,
+                                           lambda_cm = lambda_cm,
+                                           ref_depth = change_ref_depth)
       bd0
     }
   }
@@ -212,9 +213,9 @@ simulate_once <- function(
   bd_fun_t1_list  <- vector("list", n_cores)
   for (i in seq_len(n_cores)) {
     bd_fun_ref_list[[i]] <- make_bd_fun("ref", bd_ref_mult[i], bd_increase_pct,
-                                        z0_cm, z_effect_max, w_transition)
+                                        z0_cm, lambda_cm, change_ref_depth)
     bd_fun_t1_list[[i]]  <- make_bd_fun("t1",  bd_t1_mult[i],  bd_increase_pct,
-                                        z0_cm, z_effect_max, w_transition)
+                                        z0_cm, lambda_cm, change_ref_depth)
   }
 
   ref_layers <- do.call(rbind, lapply(seq_len(n_cores), function(i)
@@ -295,7 +296,7 @@ simulate_once <- function(
     }
   }
 
-  out$bd_obs       <- pmax(out$bd_true + rnorm(nrow(out), 0, bd_lab_sd), 0.6)
+  out$bd_obs       <- pmax(out$bd_true + rnorm(nrow(out), 0, bd_lab_sd), 0.05)
   out$c_obs        <- add_lab_noise(out$c_true_layer, c_lab_cv)
   out$tk           <- out$lower - out$upper
   out$c_obs_zstock <- out$c_obs * out$bd_obs * out$tk * 0.1
@@ -318,7 +319,7 @@ get_fd_long <- function(df_sim) {
   )
 }
 
-get_esm_long <- function(df_sim, interp = "spline") {
+get_esm_long <- function(df_sim, interp = "hyman") {
   df_sim$bd        <- df_sim$bd_obs
   df_sim$soc       <- df_sim$c_obs
 
@@ -446,9 +447,9 @@ ui <- fluidPage(
         "'high' = strong stratification (SOC decreases sharply with depth). 'low' = weak stratification."
       ),
       with_info(
-        sliderInput("bd_pct", "BD increase in treatment (%)",
-                    min = 0, max = 30, value = 15, step = 1),
-        "Bulk density increase applied to Treatment near the surface (logistic decay with depth)."
+        sliderInput("bd_pct", "BD change in treatment (%)",
+                    min = -30, max = 30, value = 15, step = 1),
+        "Mean bulk density change in the 0-10 cm layer of the Treatment (negative = decrease), declining exponentially with depth (e-folding depth 29 cm)."
       ),
 
       conditionalPanel(
@@ -495,7 +496,8 @@ ui <- fluidPage(
       h4("ESM settings"),
       with_info(
         selectInput("esm_interp", "Interpolation",
-                    choices = c("linear", "spline"), selected = "spline"),
+                    choices = c("hyman", "spline", "monotone", "linear"),
+                    selected = "hyman"),
         "Interpolation method used for the cumulative SOC vs cumulative mineral mass curve."
       ),
 
@@ -646,8 +648,7 @@ server <- function(input, output, session) {
       soc_prof   = cfg$soc_prof,
       bd_core_cv = cfg$bd_core_cv,
       bd_lab_sd  = cfg$bd_lab_sd,
-      c_lab_cv   = cfg$c_lab_cv,
-      w_transition = 6
+      c_lab_cv   = cfg$c_lab_cv
     )
 
     fd_long  <- get_fd_long(df_sim)
@@ -785,7 +786,7 @@ server <- function(input, output, session) {
       "- Mode: ", ifelse(cfg$mode == "null", "H0 (no true SOC change)", "H1 (true SOC change)"), "\n",
       "- Design: ", cfg$design, " | interval: 0-", cfg$interval, " cm",
       " | n_cores: ", cfg$n_cores, " | paired: ", cfg$paired, "\n",
-      "- SOC profile: ", cfg$soc_prof, " | BD increase (%): ", cfg$bd_pct, "\n",
+      "- SOC profile: ", cfg$soc_prof, " | BD change (%): ", cfg$bd_pct, "\n",
       "- True SOC effect (%): ", cfg$soc_eff,
       " | depth: ", cfg$soc_eff_depth, "\n",
       "- Noise: bd_core_cv = ", cfg$bd_core_cv,

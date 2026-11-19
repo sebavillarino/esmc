@@ -38,7 +38,7 @@ result <- esm_compare(
   profile_by     = c("site", "year", "trt", "rep"),
   output         = "layers",
   reference_mode = "min",
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -76,8 +76,10 @@ esm_plot_spline(result, profile_by = c("site", "year", "trt", "rep"))
 - `"custom"` — user-supplied value
 
 **`interp`**: interpolation method for the C(M) curve.
-- `"spline"` — cubic spline (recommended when ≥ 3 depth intervals)
-- `"linear"` — recommended when only 2 depth intervals are available
+- `"hyman"` — cubic spline with Hyman monotonicity filter (default; requires ≥ 2 depth intervals)
+- `"spline"` — natural cubic spline (default up to v0.3.2)
+- `"monotone"` — monotone cubic Hermite spline (Fritsch-Carlson)
+- `"linear"` — recommended when only 1 depth interval is available
 - `"step"` — constant within interval
 
 ### Interactive simulator

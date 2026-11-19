@@ -151,7 +151,7 @@ result <- esm_compare(
   profile_by     = c("Site", "yr", "trt", "rep"),
   reference_mode = "min",
   reference_by   = c("Site", "yr"),
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -340,7 +340,7 @@ res_min <- esm_compare(
   profile_by     = c("Site", "yr", "trt", "rep"),
   reference_mode = "min",
   reference_by   = c("Site", "yr"),
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -362,7 +362,7 @@ res_reftrt <- esm_compare(
   reference_mode = "ref_trt",
   ref_trt        = "ctrl",
   reference_by   = c("Site", "yr"),
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -383,7 +383,7 @@ res_custom <- esm_compare(
   profile_by     = c("Site", "yr", "trt", "rep"),
   reference_mode = "custom",
   custom_mass    = 900,
-  interp         = "spline",
+  interp         = "hyman",
   soil_prop_unit = "pct",
   som_from_soc   = TRUE
 )
@@ -399,11 +399,32 @@ nodes. The choice matters most when the reference mass falls between two
 observed points (interpolation) or beyond the last observed point
 (extrapolation).
 
-### `"spline"` — cubic spline (recommended)
+### `"hyman"` — cubic spline with Hyman filter (default)
 
-Fits a natural cubic spline through the C(M) nodes. Captures the curvature
-in the SOC profile, which is common in most soils — SOC decreases non-linearly
-with depth and mass. **Recommended when ≥ 3 depth intervals are available.**
+Fits a cubic spline through the C(M) nodes and applies the Hyman
+monotonicity filter, so the cumulative stock never decreases with mass and no
+layer can have a negative stock. This is the method used by von Haden et al.
+(2020). Outside the observed mass range, esmc extrapolates linearly with the
+end slope of the spline. In the simulation benchmark of the esmc reference
+paper, it was the most robust method across fine and coarse sampling designs.
+**Recommended when ≥ 2 depth intervals are available.**
+
+```{r interp-hyman}
+res_hyman <- esm_compare(
+  data = df, soil_prop = "soc",
+  profile_by     = c("Site", "yr", "trt", "rep"),
+  reference_mode = "min", reference_by = c("Site", "yr"),
+  interp = "hyman", soil_prop_unit = "pct", som_from_soc = TRUE
+)
+```
+
+### `"spline"` and `"monotone"` — other spline variants
+
+`"spline"` fits a natural cubic spline (the default up to esmc 0.3.2). It
+imposes zero curvature at the surface, where the C(M) curve of strongly
+stratified soils is most curved, which can cause errors that alternate in sign
+between adjacent layers. `"monotone"` fits a Fritsch-Carlson monotone cubic
+Hermite spline, which performs well when many depth intervals are available.
 
 ```{r interp-spline}
 res_spline <- esm_compare(
@@ -417,7 +438,7 @@ res_spline <- esm_compare(
 ### `"linear"` — linear interpolation
 
 Connects C(M) nodes with straight line segments. Simpler and more conservative
-than spline, but may underestimate curvature. **Recommended when only 1 depth
+than the spline methods, but may underestimate curvature. **Recommended when only 1 depth
 interval is available.** With 2 or more intervals, the (0, 0) anchor counts as
 an additional point, giving the spline sufficient points to fit. In practice,
 spline generally reduces systematic errors further than linear when multiple
@@ -446,6 +467,7 @@ get_layer <- function(res, method_name) {
 }
 
 df_comp <- rbind(
+  get_layer(res_hyman,  "hyman"),
   get_layer(res_spline, "spline"),
   get_layer(res_linear, "linear")
 )

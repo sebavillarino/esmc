@@ -36,8 +36,8 @@ utils::globalVariables(c(
 #'   requires the cumulative C(M) values stored in \code{$diagnostics}.
 #' @param profile_by Character vector. Same \code{profile_by} used in
 #'   \code{esm_compare()} — identifies individual cores/profiles.
-#' @param interp Character. Interpolation method: \code{"spline"} (default),
-#'   \code{"monotone"}, \code{"hyman"} or \code{"linear"}. Should match
+#' @param interp Character. Interpolation method: \code{"hyman"} (default),
+#'   \code{"spline"}, \code{"monotone"} or \code{"linear"}. Should match
 #'   the method used in \code{esm_compare()}.
 #' @param n_grid Integer. Number of points used to draw each curve segment.
 #'   Default 200.
@@ -66,7 +66,7 @@ utils::globalVariables(c(
 #'   data = my_data, rvar = "soc",
 #'   profile_by = c("site", "yr", "trt", "rep"),
 #'   output = "both",
-#'   reference_mode = "min", interp = "spline"
+#'   reference_mode = "min", interp = "hyman"
 #' )
 #' esm_plot_spline(result, profile_by = c("site", "yr", "trt", "rep"))
 #' }
@@ -78,7 +78,7 @@ utils::globalVariables(c(
 esm_plot_spline <- function(
     esm_out,
     profile_by,
-    interp        = c("spline", "monotone", "hyman", "linear"),
+    interp        = c("hyman", "spline", "monotone", "linear"),
     n_grid        = 200,
     x_lab         = "Cumulative mineral soil mass (kg m\u207b\u00b2)",
     y_lab         = "Cumulative SOC stock (kg C m\u207b\u00b2)",

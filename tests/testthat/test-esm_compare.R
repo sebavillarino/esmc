@@ -114,3 +114,22 @@ test_that("interp = 'monotone' extrapolates with the last-layer concentration", 
   expect_true(r$cumulative$extrapolated)
   expect_equal(r$cumulative$cum_stock_kg_m2, expected, tolerance = 1e-10)
 })
+
+# --- Default interpolation and Hyman extrapolation (v0.4.0) --------------------
+test_that("the default interpolation is 'hyman'", {
+  expect_identical(eval(formals(esm_compare)$interp)[1], "hyman")
+})
+
+test_that("interp = 'hyman' extrapolates linearly with the end slope", {
+  d <- one_profile_data()[1:4, ]
+  r <- suppressWarnings(
+    esm_compare(d, soil_prop = "soc", profile_by = c("trt", "rep"),
+                output = "cumulative", reference_mode = "custom",
+                custom_mass = 2000, interp = "hyman", som_from_soc = FALSE))
+  pm <- r$profile_mass
+  f  <- stats::splinefun(pm$cum_mineral_mass_kg_m2, pm$cum_stock_kg_m2,
+                         method = "hyman")
+  xn <- max(pm$cum_mineral_mass_kg_m2)
+  expected <- f(xn) + f(xn, deriv = 1) * (2000 - xn)
+  expect_equal(r$cumulative$cum_stock_kg_m2, expected, tolerance = 1e-10)
+})
